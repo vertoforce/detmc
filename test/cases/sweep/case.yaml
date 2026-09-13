@@ -8,6 +8,31 @@
 # build this world.  It needs a flat level type, a second mod jar (Carpet, for the fake
 # player) and a per-tick function tag, and none of those three is in the schema.
 # Everything the schema does define is honoured; `self:` holds the rest.
+#
+# NOT A CASE HERE, ON PURPOSE: "the fake player comes back on a resume".
+#
+# `Replica.resume` re-spawns every `setup.fake_players` entry and fails the node if
+# `list` does not then show it (runner/run.py `spawn_fake_players`, added 2026-09-13
+# after a 183-generation search ticked 548 of 549 node-generations with an empty
+# village).
+#
+# The obvious place to guard that is a `kind: resume-pair` case, and the schema cannot
+# express it without two additions that are bigger than the check:
+#   * Carpet.  `run-tests.py ensure_jar` WIPES test/mods and copies only the detmc jar,
+#     so a generic case cannot have a second mod; this case gets Carpet only because it
+#     is self-driven (`self.player`) and sweep-pair.sh mounts its own mods dir.
+#   * a resume hook.  `setup.commands` runs once, before the first leg; a resume-pair
+#     case restarts from the save with no way to say "and run these lines again".
+# So the check lives where the code is: `spawn_fake_players` raises on a `list` that
+# does not hold the player (node FAILED, dropped and retried once by branch.py), and
+# the resumed-node determinism claim that WOULD have been this case's job is measured
+# directly instead: two containers resuming the same checkpoint with the same reseed
+# for 6,000 ticks agree on the final gametime, every score metric, every detector hit
+# and every block in every region file -- and their `entities/*.mca` do NOT agree,
+# before this change or after it
+# (docs/STATUS.md "2026-09-13: the fake player was lost on every resume").  That is
+# `replay-from-save`'s claim, one layer up.
+
 name: sweep
 summary: >
   The thirteen phase-8 -Ddetmc.syncRandom fixes, actually walked: villagers indoors

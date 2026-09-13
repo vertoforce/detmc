@@ -139,7 +139,11 @@ Fixed, and identical on every replica, because the mod's determinism depends on 
 7. resolve `anchor_y` by binary search with `execute if block` (needs the chunk
    loaded, hence after the forceload)
 8. `setup.prep` commands in order
-9. fake players (`/player <name> spawn at x y z`, Carpet)
+9. fake players (`/player <name> spawn at x y z`, Carpet), then `gamemode`
+   **retried** until the server stops saying "No player was found" and `list`
+   checked: Carpet's spawn returns before the join, so an unretried gamemode
+   silently leaves the player in survival. A player that never joins is a hard
+   error. The same code runs on every resume -- see "What a resumed world keeps"
 10. summons -- every summoned entity gets `Tags:["detmc_summoned", "<summon.tag>"]`
     merged into its NBT, then `setup.tag_entities` tags anything the scenario needs
     to count that was not summoned
@@ -343,7 +347,8 @@ container.
 | the detector datapack | kept and auto-enabled, but **`detmc:load` has NOT run yet**: `#loaded` 1 and every holder come back from the save, and the `minecraft:load` tag only fires on the first *ticked* tick (measured 2026-09-12, see "The load tag runs on the first ticked tick") |
 | `detmc-rng.properties` | kept, validated against `baseMaster` and adopted |
 | `/detmc reseed` | works on the resumed world |
-| **entities** | **all gone**: 5 endermen in, 0 out |
+| **entities** | **all gone**: 5 endermen in, 0 out (on the merged master jar they come back; the fake players never do) |
+| **fake players** | **all gone**: Carpet logs them out on shutdown and writes nothing that brings them back. `list` on a freshly booted copy of a set-up world reads 0 players (measured 2026-09-13, all 6 cells of the throughput A/B). `Replica.resume` re-spawns them |
 
 The entity loss is the known detmc defect (`entities/*.mca` is 0 bytes on every
 save, see "detmc never writes entity region files"), and it decides the design:
@@ -364,9 +369,21 @@ save, see "detmc never writes entity region files"), and it decides the design:
   the gametime at the reseed is exactly the parent's checkpoint gametime, which is
   what makes `(gametime, reseed)` a complete description.
 
-Order inside a resume is fixed and matters: re-summon, restore blocks, **then**
-reseed. Siblings are identical up to the reseed, so the reseed is the only thing
-that makes them different.
+- The **fake players** do not come back either, and that one is worse than a lost
+  mob: natural spawning only runs in chunks with a non-spectator player within 128
+  blocks, so a resumed node with no player is a world where the scenario cannot
+  happen. `Replica.resume` re-spawns every `setup.fake_players` entry and raises if
+  `list` does not then show it, which drops the node instead of ticking an empty
+  village. Until 2026-09-13 it did not, and `hunt-villager-wave1` ran 182
+  generations that way -- `endermen` 0 in 548 of 549 node-generations.
+  See "The fake player is re-spawned on every resume" below.
+
+Order inside a resume is fixed and matters: re-summon, restore blocks, re-spawn the
+fake players, **then** reseed. Siblings are identical up to the reseed, so the
+reseed is the only thing that makes them different -- which is exactly why the spawn
+goes before it and not after: a player spawned after the reseed would draw from the
+new stream and every sibling would enter its segment at a different offset into its
+own seed.
 
 Two saving rules, both from measurements already in this repo:
 
@@ -378,6 +395,43 @@ Two saving rules, both from measurements already in this repo:
   Not after `docker compose down`: compose's 10 s stop timeout SIGKILLs one of these
   servers before its shutdown save finishes (test/, 2026-09-12), so the on-disk
   world after a teardown is the previous autosave.
+
+### The fake player is re-spawned on every resume (2026-09-13)
+
+`run.Replica.spawn_fake_players` is one method called from both `setup` and `resume`.
+It issues Carpet's `player <name> spawn at x y z [facing]`, **retries**
+`gamemode <mode> <name>` until the server stops answering "No player was found",
+reads `playerGameType` back, and raises unless `list` holds the name -- which fails
+the node in `branch.py` (dropped, one bounded retry) rather than ticking an empty
+village at a rate that reads like progress. `branch.py` writes what it spawned into
+the node's lineage record and into the checkpoint's `meta.json`.
+
+The retry is not defensive coding, and it is the resume path that needs it: the first
+`gamemode creative` answered "No player was found" in **5 of 5 resumed nodes** and in
+**0 of the 2 generation-0 setups** measured here. An unretried spawn leaves the player
+online but in **survival**, which is a different world (mobs target a survival player;
+a creative one is invulnerable and therefore invisible to targeting).
+
+Verified on one node, resuming `hunt-villager-wave1`'s `g181n0` checkpoint
+(gametime 8,736,001, reseed 548001651) for a 6,000-tick segment, one container at a
+time through `memgate --need 3000`:
+
+| at the end of the segment | control, no player (the old path) | with the fix |
+|---|---|---|
+| `list` | `There are 0 of a max of 20 players online:` | `There are 1 ...: villagewatch` |
+| `playerGameType` | -- | 1 (creative), after 1 retry |
+| monsters in the village box | -- | **32** (30 at the resume): 9 zombies, 1 skeleton |
+| ticks/s | 254.5, 251.9 | **195.2, 190.9** |
+
+**Two resumed containers still do not agree on mob state, and did not before this
+either.** Same parent, same reseed, 6,000 ticks, two containers: final gametime, all
+12 score metrics, the detector hits and **every block in every region file** match in
+both arms; the `entities/*.mca` payloads differ in both (7 of 715 chunks with no
+player, 18 of 721 with one). The control is the finding -- that is the per-entity
+`RandomSource` draw position vanilla never serialises, not anything this fix did.
+A `settle()` after the join was tried and does not close it (22 s a node,
+`entityOrdinal` still 42118 against 42128), so it is not in the code. docs/STATUS.md,
+"Two resumed containers do not agree on mob state".
 
 ### Verified end to end, and the replay is exact (2026-09-12)
 

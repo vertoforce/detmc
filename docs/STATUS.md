@@ -1217,3 +1217,81 @@ keep them out of the generic runner and would each have to become a schema field
 runner code first: a flat level type, a second mod jar in `mods/` (Carpet, for the fake
 player), and a datapack with a `minecraft:tick` function tag rather than one `setup`
 function.
+
+## 2026-09-13: the fake player was lost on every resume
+
+`branch.py` only calls `setup()` for generation-0 nodes, and `Replica.resume` never
+put the Carpet fake players back.  Carpet logs them out on shutdown and writes nothing
+that restores them, so every node after generation 0 booted its parent's world with
+`list` reading 0 players -- and natural spawning only runs in chunks with a
+non-spectator player within 128 blocks
+(`ChunkMap.playerIsCloseEnoughForSpawning`).  `hunt-villager-wave1` ran
+entirely that way: its `endermen` metric read **0 in 548 of its 549 node-generations**,
+and it ticked 1.42x faster than the scenario it was supposed to be running.
+
+### The fix
+
+`Replica.resume` now re-spawns every `setup.fake_players` entry, and a node whose
+player does not show up in `list` FAILS instead of ticking an empty village.
+`run.spawn_fake_players` is the old `setup` block plus the two guards
+`bench_tps.py` had to learn: `gamemode <mode> <name>` is retried until the server
+stops answering "No player was found" (Carpet's `player ... spawn` returns before
+the join), and the mode is then read back from `playerGameType`. `branch.py`
+records what it spawned in the node's lineage record and in the checkpoint's
+`meta.json`, so "was there a player" is answerable per node without the driver log.
+
+**Order: after the re-summon and the material restore, BEFORE the reseed.**
+Everything a resume does to the world has to be identical across a parent's
+children, so that the `detmc reseed` argument stays the one thing that makes a
+sibling different. Nothing steps the tick loop, so the gametime at the reseed is
+still exactly the parent's checkpoint gametime.
+
+**Verified on one node**, resuming `hunt-villager-wave1`'s `g181n0` checkpoint
+(gametime 8,736,001, reseed 548001651 -- one this run actually issued) for a
+6,000-tick segment, one container at a time through `memgate --need 3000`
+(three runs under `runner/runs/`):
+
+| reading at the end of the segment | control: no player (the old path) | with the fix |
+|---|---|---|
+| `list` | `There are 0 of a max of 20 players online:` | `There are 1 of a max of 20 players online: villagewatch` |
+| `playerGameType` | -- | **1** (creative), after **1** retry of `gamemode creative` |
+| monsters in the village box | -- | **32** (30 at the resume): 9 zombies, 1 skeleton, 22 other |
+| `endermen` | 0 | 0 -- 6,000 ticks is a quarter of one night |
+| ticks/s | 254.5, 251.9 | **195.2, 190.9** |
+
+**1.31x on the rate**, same world copy and same segment. The throughput A/B measured
+the same effect from the other end at 1.42x on a quieter host.
+
+The retry is load-bearing, and only on the resume path: the first `gamemode creative`
+answered "No player was found" in **5 of 5 resumed nodes** and in **0 of the 2
+generation-0 setups** (which joined on the first try -- a fresh world boots with
+nothing to load). Without the retry a resumed node has its player online but in
+SURVIVAL, and mobs target a survival player.
+
+### Two resumed containers do not agree on mob state, and never did
+
+Measured while checking the fix could not have broken determinism: two containers,
+same parent checkpoint, same reseed, same 6,000 ticks.
+
+| arm | final gametime | score metrics | detector hits | block region chunks | entity chunks | `entityOrdinal` |
+|---|---|---|---|---|---|---|
+| no player (the pre-fix resume path) | MATCH | MATCH, all 12 | MATCH | **MATCH, every file** | DIFFER, **7 of 715** | MATCH (42090) |
+| with the fix | MATCH | MATCH, all 12 | MATCH | **MATCH, every file** | DIFFER, **18 of 721** | DIFFER (42131 / 42159) |
+
+The control is the finding: **mob state was already not bit-reproducible across two
+resumed containers**, before this change and with no player in the world. That is the
+gap phase 5 named and this file has carried since ("Resumed does not equal
+uninterrupted"): vanilla serialises no `RandomSource` state, so every entity read back
+out of `entities/*.mca` starts from a fresh draw position. It was invisible until now
+because the hunt jar wrote 0-byte `entities/*.mca` and no comparison could see a mob.
+What the fix adds is more mobs for that gap to act on.
+
+Everything a search actually reads -- the final gametime, all 12 score metrics, the
+detector hits and **every block in every region file** -- matches in both arms.
+
+**A settle after the join does not close it, and costs 22 s a node.** Tried, because
+chunk loading continues while the ticks are frozen and a joining player brings its own
+tickets: `settle()` (31 polls, 22 s) left `entityOrdinal` at 42118 against 42128 and
+diverged the score metrics as well (`endermen` 0/1, `villagers` 9/7). The wait is not
+in the code; the comment in `Replica.resume` carries this measurement.
+

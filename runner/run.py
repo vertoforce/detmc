@@ -959,6 +959,7 @@ class Replica:
         self.thresholds = {}
         self.reached = 0
         self.wall = 0.0
+        self.fake_players_spawned = []   # what spawn_fake_players last did, verbatim
         self.logf = run.dir / f"{self.name}.log"
 
     # -- plumbing
@@ -1177,27 +1178,7 @@ class Replica:
         for entry in scn["setup"]["prep"]:
             for cmd in expand_prep(entry, v):
                 self.rcon(cmd)
-        # Fake players default to CREATIVE, and that is a correctness choice rather
-        # than a convenience.  Read out of the 26.2 source:
-        #   GameType.updatePlayerAbilities:63-66  creative sets abilities.invulnerable
-        #   Player.canBeSeenAsEnemy:724           `return !getAbilities().invulnerable
-        #                                          && super.canBeSeenAsEnemy()`
-        # so no mob will ever target a creative fake player -- no creeper walks over
-        # and explodes a hole in the village, no zombie drags the villagers into a
-        # fight the scenario is not about.  And the thing the player is there FOR is
-        # untouched, because
-        #   ChunkMap.playerIsCloseEnoughForSpawning:1014  only excludes SPECTATORS
-        # (`if (player.isSpectator()) return false;` then a plain 128-block test), so
-        # the chunk is still a spawning chunk and lightning and natural spawns still
-        # run around it.  Both halves are verified on a live server; see README,
-        # "A creative fake player gates spawning and is invisible to mobs".
-        for fp in subst(scn["setup"]["fake_players"], v):
-            pos = [int(x) for x in fp["at"]]
-            extra = f" facing {fp['facing'][0]} {fp['facing'][1]}" if fp.get("facing") else ""
-            self.rcon(f"player {fp['name']} spawn at {pos[0]} {pos[1]} {pos[2]}{extra}")
-            mode = fp.get("gamemode", "creative")
-            if mode:
-                self.rcon(f"gamemode {mode} {fp['name']}")
+        self.spawn_fake_players(v)
         self.do_summons(v)
         # Tag entities that were NOT summoned (worldgen villagers, say) so a count
         # detector can count a tag instead of a distance: out-of-range and dead read
@@ -1215,6 +1196,88 @@ class Replica:
             log(f"{self.name}: tagged {te['tag']}: {self.score('#val_tagcheck')} entities")
         self.reseed_supported = self.probe_reseed()
         self.install_detector(v)
+
+    def spawn_fake_players(self, v, tries=30, delay=1.0):
+        """Put every `setup.fake_players` entry on the server and PROVE it is there.
+
+        Split out of `setup` because a resumed world has to re-run exactly this:
+        Carpet logs its fake players out on shutdown and writes nothing that brings
+        them back, so a copied world boots with nobody in it -- and natural spawning
+        needs a non-spectator player within 128 blocks
+        (ChunkMap.playerIsCloseEnoughForSpawning:1014), so a village with no player
+        is a village where the scenario cannot happen.  Measured 2026-09-13: `list`
+        on a freshly booted copy of a set-up world reads 0 players, and
+        hunt-villager-wave1 -- which resumed 548 times without this -- scored
+        `endermen` 0 in 548 of its 549 node-generations.
+
+        Two things are retried rather than assumed, both measured:
+        * Carpet's `player <name> spawn` returns BEFORE the player joins, so a
+          `gamemode` issued on the next rcon round trip answers "No player was
+          found" and the player silently stays in SURVIVAL -- a different world,
+          because mobs target a survival player and a creative one is invulnerable
+          and therefore invisible to targeting.  `bench_tps.py spawn_player` found
+          this; the retry here is the same one.
+        * the join is then verified against `list`.  A missing player raises, which
+          in branch.py FAILS the node (dropped and retried once) instead of ticking
+          an empty world at 1.4x and reporting it as progress.
+
+        Nothing here steps the tick loop -- every caller holds `tick freeze` -- so
+        the retry spends wall clock, never gametime, and the gametime a resume point
+        is pinned to cannot move while a player is joining.
+
+        Fake players default to CREATIVE, and that is a correctness choice rather
+        than a convenience.  Read out of the 26.2 source:
+          GameType.updatePlayerAbilities:63-66  creative sets abilities.invulnerable
+          Player.canBeSeenAsEnemy:724           `return !getAbilities().invulnerable
+                                                 && super.canBeSeenAsEnemy()`
+        so no mob will ever target a creative fake player -- no creeper walks over
+        and explodes a hole in the village, no zombie drags the villagers into a
+        fight the scenario is not about.  And the thing the player is there FOR is
+        untouched, because playerIsCloseEnoughForSpawning only excludes SPECTATORS
+        (`if (player.isSpectator()) return false;` then a plain 128-block test), so
+        the chunk is still a spawning chunk and lightning and natural spawns still
+        run around it.  Both halves are verified on a live server; see README,
+        "A creative fake player gates spawning and is invisible to mobs".
+        """
+        fps = subst(self.run.scn["setup"]["fake_players"], v)
+        self.fake_players_spawned = []
+        if not fps:
+            return self.fake_players_spawned
+        before = self.rcon("list", check=False).strip()
+        for fp in fps:
+            pos = [int(x) for x in fp["at"]]
+            extra = f" facing {fp['facing'][0]} {fp['facing'][1]}" if fp.get("facing") else ""
+            self.rcon(f"player {fp['name']} spawn at {pos[0]} {pos[1]} {pos[2]}{extra}")
+            mode = fp.get("gamemode", "creative")
+            waited = 0
+            if mode:
+                for attempt in range(tries):
+                    out = self.rcon(f"gamemode {mode} {fp['name']}", check=False)
+                    if "No player was found" not in out:
+                        break
+                    waited = attempt + 1
+                    time.sleep(delay)
+            listed = self.rcon("list", check=False).strip()
+            if fp["name"] not in listed:
+                raise RuntimeError(
+                    f"{self.name}: fake player {fp['name']} never joined after "
+                    f"`player ... spawn` and {waited} gamemode retries; "
+                    f"`list` says: {listed[:160]}")
+            # Read the mode back rather than trust the reply: `playerGameType` 1 is
+            # creative (GameType.CREATIVE.getId()).
+            raw = self.rcon(f"data get entity {fp['name']} playerGameType",
+                            check=False).strip()
+            if mode == "creative" and not raw.rstrip().endswith("1"):
+                raise RuntimeError(f"{self.name}: fake player {fp['name']} is not "
+                                   f"creative after {waited} retries: {raw[:120]}")
+            self.fake_players_spawned.append(
+                {"name": fp["name"], "at": pos, "gamemode": mode,
+                 "gamemode_retries": waited, "gametype_raw": raw[:80],
+                 "listed": listed[:160]})
+            log(f"{self.name}: fake player {fp['name']} at "
+                f"{pos[0]},{pos[1]},{pos[2]} online, {mode} "
+                f"(after {waited} gamemode retries); before: {before[:80]}")
+        return self.fake_players_spawned
 
     def do_summons(self, v):
         """`setup.summons`, in file order.  Split out of `setup` because a resumed
@@ -1590,8 +1653,12 @@ class Replica:
         initialises `#armed` instead of setting it, and why `ensure_detmc_loaded`
         checks for the objective instead of waiting on a flag the save carries.  **The entities do
         not** -- every `entities/*.mca` is 0 bytes on detmc, so the world comes
-        back with 0 mobs.  So the order here is: re-summon first (frozen, no tick
-        passes), restore the blocks the despawned mobs were holding, and only then
+        back with 0 mobs.  **Neither do the players**: Carpet logs its fake players
+        out on shutdown, so the copy boots empty and natural spawning -- which needs
+        a non-spectator player within 128 blocks -- is off until one is put back
+        (measured 2026-09-13; see `spawn_fake_players`).  So the order here is:
+        re-summon first (frozen, no tick passes), restore the blocks the despawned
+        mobs were holding, re-spawn the scenario's fake players, and only then
         reseed, which is the single thing that makes a sibling different.
 
         Because nothing here steps the tick loop, the gametime at the reseed is
@@ -1614,6 +1681,26 @@ class Replica:
         res = self.run.scn.get("resume") or {}
         self.resummoned = self.do_summons(self.vars) if res.get("resummon", True) else 0
         self.restored_blocks = self.restore_material()
+        # The fake players, BEFORE the reseed, for the same reason the re-summon and
+        # the material restore are before it: everything that touches the world on a
+        # resume has to be identical across a parent's children, so the `detmc
+        # reseed` argument stays the ONE thing that makes a sibling different.  A
+        # player spawned after the reseed would draw from the new stream, and each
+        # sibling would start its segment at a different offset into its own seed --
+        # deterministic, but a second difference the lineage does not record.  Here
+        # the draws (if Carpet makes any) come out of the parent's saved stream,
+        # which every sibling shares, and the reseed then replaces that stream
+        # wholesale.  Gametime does not move either way: the world is frozen, which
+        # is what keeps a lineage replayable as (gametime, reseed) pairs.
+        self.spawn_fake_players(self.vars)
+        # No settle here, and that is measured rather than assumed: waiting for
+        # the entity list to stop moving after the join (`settle()`, 31 polls,
+        # 22 s per node) did NOT make two containers agree -- entityOrdinal came
+        # out 42118 against 42128 with it, against 42131/42159 without, and the
+        # score metrics diverged in that arm too.  The divergence is the known
+        # per-entity RandomSource gap (STATUS.md, "Resumed does not equal
+        # uninterrupted"), which no pre-tick wait can close, so the wait would be
+        # 22 s a node for nothing.
         self.applied_reseed = None
         if reseed_seed is not None:
             if not self.reseed_supported:
@@ -1624,7 +1711,10 @@ class Replica:
             self.reseeded.add(gt)
         self.rcon("scoreboard players set #armed detmc 1")
         log(f"{self.name}: resumed at gametime {gt}, {self.resummoned} mobs re-summoned, "
-            f"{self.restored_blocks} blocks restored, reseed {self.applied_reseed}")
+            f"{self.restored_blocks} blocks restored, "
+            f"{len(self.fake_players_spawned)} fake players re-spawned "
+            f"({', '.join(f['name'] for f in self.fake_players_spawned) or 'none'}), "
+            f"reseed {self.applied_reseed}")
         return gt
 
     def restore_material(self):

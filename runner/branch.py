@@ -105,6 +105,7 @@ class Node:
         self.frames = {}                    # gametime -> the world copy written there
         self.error = None
         self.timings = {}
+        self.fake_players = []              # what Replica.spawn_fake_players did here
 
     def child_schedule(self, gametime, reseed):
         return self.schedule + [{"gametime": int(gametime), "reseed": int(reseed)}]
@@ -117,6 +118,7 @@ class Node:
                "schedule": self.schedule, "final_gametime": self.final_gametime,
                "rank": self.rank, "scores": self.scores, "hits": self.hits,
                "where": self.where,
+               "fake_players": self.fake_players,
                "error": str(self.error) if self.error else None,
                "timings": self.timings}
         if self.frames:
@@ -510,11 +512,25 @@ class BranchRun:
             log(f"{node.id}: FAILED on the retry boot: {exc}")
 
     def _prepare_one(self, r, node):
+        """Generation 0 is `setup`, every later generation is `resume`.
+
+        Both arms must leave the world with the scenario's fake players ON it.
+        Until 2026-09-13 only the `setup` arm did: `Replica.resume` never put them
+        back, Carpet does not restore them from the save, and natural spawning
+        needs a non-spectator player within 128 blocks -- so every generation after
+        0 ticked an empty village.  `hunt-villager-wave1` scored `endermen` 0 in 548
+        of its 549 node-generations and ran 1.4x faster for it.  The spawn now
+        happens inside `Replica.resume` (frozen, before the reseed, so the reseed
+        stays the only difference between siblings) and raises if `list` does not
+        show the player, which drops the node here rather than reporting an empty
+        world as progress.
+        """
         try:
             if node.parent is None:
                 r.setup(self.world)
                 node.base_gametime = r.gametime()
                 node.vars = r.vars
+                node.fake_players = r.fake_players_spawned
                 # `run.reseed` from the scenario is a run.py feature and would fire
                 # inside a segment; a branch's only reseeds are its resume points.
                 r.reseeds = []
@@ -526,6 +542,7 @@ class BranchRun:
                 node.vars = meta["vars"]
                 node.resummoned = r.resummoned
                 node.restored_blocks = r.restored_blocks
+                node.fake_players = r.fake_players_spawned
         except Exception as exc:                       # noqa: BLE001 - reported above
             node.error = exc
             log(f"{node.id}: FAILED: {exc}")
@@ -706,6 +723,7 @@ class BranchRun:
             "scores": node.scores, "rank": node.rank, "hits": node.hits,
             "where": node.where,
             "schedule": node.schedule, "base_rng_seed": node.rng_seed,
+            "fake_players": node.fake_players,
             "world_seed": self.world_seed, "bytes": size}, indent=2))
         log(f"{node.id}: checkpoint {dst.name} ({size / 1e6:.1f} MB) "
             f"at gametime {node.final_gametime}")
