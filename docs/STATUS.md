@@ -1268,6 +1268,20 @@ generation-0 setups** (which joined on the first try -- a fresh world boots with
 nothing to load). Without the retry a resumed node has its player online but in
 SURVIVAL, and mobs target a survival player.
 
+**The name the server lists is not always the name the scenario typed.** Caught in
+production the same day: `player stormwatch spawn` produced a player `list` reports as
+**`Stormwatch`** on 4 of 5 lightning nodes and as `stormwatch` on the fifth, while
+`villagewatch` came back verbatim on every villager node. Carpet resolves a
+`GameProfile` for the name and the canonical casing comes back with it, per node, as a
+race against that lookup. Commands accept either casing; only the display differs. The
+first version of this check compared case-sensitively and failed **8 of 8**
+generation-0 lightning nodes that had the player standing in them, so the check is
+case-insensitive and the `playerGameType` read asks about the name `list` gave back.
+
+**The retry runs longer than one round trip.** Retries needed for
+`gamemode creative` on the 5 nodes of that wave: 1, 1, 4, 0, 5. At one second apiece
+that is up to 5 s after Carpet's spawn command has already returned.
+
 ### Two resumed containers do not agree on mob state, and never did
 
 Measured while checking the fix could not have broken determinism: two containers,

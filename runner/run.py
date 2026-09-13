@@ -1258,25 +1258,39 @@ class Replica:
                     waited = attempt + 1
                     time.sleep(delay)
             listed = self.rcon("list", check=False).strip()
-            if fp["name"] not in listed:
+            # Case-insensitive, because the name the server lists is not always the
+            # name the scenario asked for: measured 2026-09-13 on the lightning
+            # hunt, `player stormwatch spawn` produced a player that `list` reports
+            # as "Stormwatch" (Carpet resolves the GameProfile, and the canonical
+            # casing comes back with it), while `villagewatch` came back verbatim.
+            # Commands take either casing; only the display differs.  A case-
+            # sensitive check here failed 8 of 8 generation-0 nodes on a world that
+            # had the player standing in it.
+            if fp["name"].lower() not in listed.lower():
                 raise RuntimeError(
                     f"{self.name}: fake player {fp['name']} never joined after "
                     f"`player ... spawn` and {waited} gamemode retries; "
                     f"`list` says: {listed[:160]}")
             # Read the mode back rather than trust the reply: `playerGameType` 1 is
-            # creative (GameType.CREATIVE.getId()).
-            raw = self.rcon(f"data get entity {fp['name']} playerGameType",
+            # creative (GameType.CREATIVE.getId()).  Ask about the name the server
+            # actually holds, not the one the scenario typed, so the read cannot
+            # fail on the casing `list` just disagreed with.
+            online = listed.split(":", 1)[-1]
+            real = next((n.strip() for n in online.split(",")
+                         if n.strip().lower() == fp["name"].lower()), fp["name"])
+            raw = self.rcon(f"data get entity {real} playerGameType",
                             check=False).strip()
             if mode == "creative" and not raw.rstrip().endswith("1"):
-                raise RuntimeError(f"{self.name}: fake player {fp['name']} is not "
+                raise RuntimeError(f"{self.name}: fake player {real} is not "
                                    f"creative after {waited} retries: {raw[:120]}")
             self.fake_players_spawned.append(
-                {"name": fp["name"], "at": pos, "gamemode": mode,
+                {"name": fp["name"], "listed_as": real, "at": pos, "gamemode": mode,
                  "gamemode_retries": waited, "gametype_raw": raw[:80],
                  "listed": listed[:160]})
-            log(f"{self.name}: fake player {fp['name']} at "
-                f"{pos[0]},{pos[1]},{pos[2]} online, {mode} "
-                f"(after {waited} gamemode retries); before: {before[:80]}")
+            log(f"{self.name}: fake player {fp['name']}"
+                + (f" (listed as {real})" if real != fp["name"] else "")
+                + f" at {pos[0]},{pos[1]},{pos[2]} online, {mode} "
+                  f"(after {waited} gamemode retries); before: {before[:80]}")
         return self.fake_players_spawned
 
     def do_summons(self, v):

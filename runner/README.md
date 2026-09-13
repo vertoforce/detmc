@@ -412,6 +412,20 @@ The retry is not defensive coding, and it is the resume path that needs it: the 
 online but in **survival**, which is a different world (mobs target a survival player;
 a creative one is invulnerable and therefore invisible to targeting).
 
+**The name the server lists is not always the name the scenario typed.** Caught in
+production the same day: `player stormwatch spawn` produced a player `list` reports as
+**`Stormwatch`** on 4 of 5 lightning nodes and as `stormwatch` on the fifth, while
+`villagewatch` came back verbatim on every villager node. Carpet resolves a
+`GameProfile` for the name and the canonical casing comes back with it, per node, as a
+race against that lookup. Commands accept either casing; only the display differs. The
+first version of this check compared case-sensitively and failed **8 of 8**
+generation-0 lightning nodes that had the player standing in them, so the check is
+case-insensitive and the `playerGameType` read asks about the name `list` gave back.
+
+**The retry runs longer than one round trip.** Retries needed for
+`gamemode creative` on the 5 nodes of that wave: 1, 1, 4, 0, 5. At one second apiece
+that is up to 5 s after Carpet's spawn command has already returned.
+
 Verified on one node, resuming `hunt-villager-wave1`'s `g181n0` checkpoint
 (gametime 8,736,001, reseed 548001651) for a 6,000-tick segment, one container at a
 time through `memgate --need 3000`:
