@@ -480,7 +480,7 @@ def _check_body(det, h, counters):
         # the position on one of the cells the door opens into, so the generated
         # text is a function of the scenario while the geometry is a function of the
         # world.  The markers are saved with the world (the merged jar writes entity
-        # region files again, docs/STATUS.md defect 3), so a resumed branch node inherits
+        # region files again, STATUS.md defect 3), so a resumed branch node inherits
         # them and needs no second survey and no reload.
         #
         # `if_block` / `unless_block` are the "an enderman put this here" test.
@@ -1231,8 +1231,8 @@ class Replica:
         return n
 
     def probe_reseed(self):
-        """Is there a `/detmc reseed <long>` command on this server?  Older jars do not
-        have one; the wiring here must not break while it is absent."""
+        """Is there a `/detmc reseed <long>` command on this server?  Another agent
+        is adding one; the wiring here must not break while it is absent."""
         if self.run.args.reseed == "off":
             return False
         # `detmc` on its own is an incomplete command and answers like a missing
@@ -2051,7 +2051,13 @@ class Run:
         # for every replica it starts at once.
         if args and args[0] == "up":
             memgate.acquire(need_mb or self.node_need_mb())
-        return sh(["docker", "compose", "-f", str(self.dir / "compose.yml"),
+        # Project name per run.  Compose defaults the project to the compose
+        # directory name, so two runs shared project "compose" and a service
+        # named after the node; on 2026-09-13 05:38 hunt-villager-wave1 `up`
+        # for its g154n0 recreated hunt-br-wave2's g154n0 container, which
+        # dropped three wave-2 nodes.
+        project = "detmc-" + re.sub(r"[^a-z0-9_-]", "-", self.run_id.lower())
+        return sh(["docker", "compose", "-p", project, "-f", str(self.dir / "compose.yml"),
                    "--env-file", str(self.dir / ".env")] + list(args), check=check, timeout=600)
 
     def manifest(self):

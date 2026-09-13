@@ -22,7 +22,7 @@ A branch is therefore described entirely by
 where every gametime is a RESUME POINT: the tick at which that world was saved,
 restarted from the save and reseeded.  That is not a cosmetic detail.  Vanilla
 serialises no `RandomSource` draw position, so a reloaded world can never be
-bit-identical to one that was never interrupted (docs/STATUS.md, "Persistence"); a
+bit-identical to one that was never interrupted (STATUS.md, "Persistence"); a
 schedule written as "reseed at tick T of one continuous run" would not replay.
 Written as resume points it does, because the replay performs the same
 save/restart/reseed at the same ticks.
@@ -300,7 +300,13 @@ class BranchRun:
         # Default need is one node; a whole-wave `up` passes the wave's total.
         if args and args[0] == "up":
             memgate.acquire(need_mb or self.node_need_mb())
-        return sh(["docker", "compose", "-f", str(path),
+        # Project name per run.  Compose defaults the project to the compose
+        # directory name, so two runs shared project "compose" and a service
+        # named after the node; on 2026-09-13 05:38 hunt-villager-wave1 `up`
+        # for its g154n0 recreated hunt-br-wave2's g154n0 container, which
+        # dropped three wave-2 nodes.
+        project = "detmc-" + re.sub(r"[^a-z0-9_-]", "-", self.run_id.lower())
+        return sh(["docker", "compose", "-p", project, "-f", str(path),
                    "--env-file", str(self.dir / ".env")] + list(args),
                   check=check, timeout=900)
 
