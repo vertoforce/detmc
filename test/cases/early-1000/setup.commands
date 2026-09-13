@@ -1,0 +1,67 @@
+# Two forceloaded regions, so chunk generation and ticking both have work.
+forceload add -80 -80 80 80
+forceload add 16 -112 176 48
+gamerule mob_griefing
+@settle
+# 30 endermen and 30 zombies at the origin: block-carrying AI and pathfinding,
+# on top of whatever natural spawning produces.
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:enderman ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}
+execute in minecraft:overworld run summon minecraft:zombie ~ ~ ~ {PersistenceRequired:1b}

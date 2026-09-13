@@ -1,0 +1,269 @@
+# Enderman art hunt: 3-high pillar AND the relaxed ground smiley, in one run.
+#
+# Arena (montecarlo/README.md "Headline result"): a perfectly flat slab produces
+# NOTHING, ever -- EndermanTakeBlockGoal samples `yt = floor(getY() + rnd*3.0)`
+# (PARAMS.md, EnderMan.java:599), which is always at or above the mob's own feet,
+# so the floor it stands on can never be picked up.  The slab therefore gets L
+# loose holdable blocks AT FOOT LEVEL; those are the only material in play, and
+# the enderman only recycles them.  L = 64 here, the same count as montecarlo's
+# headline config, but on a 25x25 slab instead of 64x64, so the mark density p is
+# ~0.10 against montecarlo's 0.0154.  Rates scale roughly as p^(k-1), so hits
+# arrive EARLIER here than the montecarlo table says; this is a hunt for real
+# occurrences, not a rate measurement.
+#
+# No player.  Measured on mc-run-lab 2026-09-12: with 0 players online and only a
+# forceload, 20 summoned endermen took 15 of 25 loose blocks in the first 6000
+# ticks and were still rearranging the slab at 966,036 ticks.  Forceload alone is
+# enough for enderman AI (it is NOT enough for natural spawning or lightning,
+# which this scenario does not want).  A Carpet fake player would also make the
+# endermen hostile (EndermanFreezeWhenLookedAt / MeleeAttackGoal), so leaving it
+# out is better than merely cheaper.
+#
+# Permanent midnight instead of a roof: the daylight teleport is p=0.04/tick
+# (EnderMan.java:247) and would empty the pen by day.  montecarlo measured roofed
+# vs open as indistinguishable (places/yr 985 vs 1016), so either works; midnight
+# keeps the arena open to the camera.
+name: enderman_hunt
+
+world:
+  # seed 12345 puts world spawn at 96,136,-32 in a flat plains patch (verified on
+  # a live 26.2 server, and it is the same world camera/testsrv renders).
+  seeds: [12345]
+  prefilter:
+    count: 1
+    start_seed: 1
+    max_seeds: 100000
+  requirements:
+    # flat-ish and snow-free: a snow layer at foot level would read as a placed block
+    spawn_biome: [minecraft:plains, minecraft:sunflower_plains, minecraft:savanna, minecraft:desert]
+    spawn_biome_radius: 48
+    structures: []
+
+server:
+  difficulty: easy
+  simulation_distance: 4
+  view_distance: 4
+  spawn_monsters: false           # only the summoned endermen may move blocks
+  # 1G, not 4G: measured on this box, a replica's container RSS tracks the heap
+  # setting almost exactly (2G -> 2.10 GiB, 1G -> 1.46-1.61 GiB) and 1G never
+  # came close to an OutOfMemory on this arena.  Replica count here is bounded by
+  # RAM, not cores, so the heap size is what sets how many can run at once.
+  memory: 1G
+
+anchor:
+  from: spawn
+  offset: [0, 0, 0]
+  y: surface                      # highest motion-blocking non-leaf block: skips
+                                  # water, leaves and logs (see anchor.surface_skip)
+
+setup:
+  gamerules:
+    mob_griefing: true            # REQUIRED: the take/place goals are gated on it
+    spawn_mobs: false
+    advance_time: false           # permanent midnight, no daylight teleport
+    advance_weather: false        # rain damages endermen and makes them teleport
+    random_tick_speed: 0          # no vegetation growth in the pen, and faster ticks
+    spawn_patrols: false
+    spawn_wandering_traders: false
+  time: {set: midnight}
+  weather: {policy: clear, duration: 1000000}
+  forceload:
+    # entity ticking for the whole arena and a margin around it
+    - from: ["${anchor_x-32}", "${anchor_z-32}"]
+      to: ["${anchor_x+32}", "${anchor_z+32}"]
+  prep:
+    # clear the air column, then a flat dirt floor at anchor_y
+    - "fill ${anchor_x-14} ${anchor_y+1} ${anchor_z-14} ${anchor_x+14} ${anchor_y+12} ${anchor_z+14} minecraft:air"
+    - "fill ${anchor_x-14} ${anchor_y} ${anchor_z-14} ${anchor_x+14} ${anchor_y} ${anchor_z+14} minecraft:dirt"
+    # 4-high stone-brick pen at +-13, so the 25x25 interior is +-12.  stone_bricks
+    # is not in #minecraft:enderman_holdable, so the wall can never be carried off
+    # and can never read as a placed block.
+    - "fill ${anchor_x-13} ${anchor_y+1} ${anchor_z-13} ${anchor_x-13} ${anchor_y+4} ${anchor_z+13} minecraft:stone_bricks"
+    - "fill ${anchor_x+13} ${anchor_y+1} ${anchor_z-13} ${anchor_x+13} ${anchor_y+4} ${anchor_z+13} minecraft:stone_bricks"
+    - "fill ${anchor_x-13} ${anchor_y+1} ${anchor_z-13} ${anchor_x+13} ${anchor_y+4} ${anchor_z-13} minecraft:stone_bricks"
+    - "fill ${anchor_x-13} ${anchor_y+1} ${anchor_z+13} ${anchor_x+13} ${anchor_y+4} ${anchor_z+13} minecraft:stone_bricks"
+    # L = 64 loose holdable blocks at FOOT level, 8x8 on a spacing-3 grid.
+    # Spacing 3 matters twice: each block is an isolated pickup target rather than
+    # a floor, and the smiley's two eyes are 2 apart in x at the same z, which a
+    # spacing-3 grid can never produce (2 % 3 != 0), so the seeded layout cannot
+    # fire the pattern detector.  Asserted in
+    # test_patterns.py::test_seeded_scatter_grid_never_matches.
+    - scatter:
+        area: ["${anchor_x-11}", "${anchor_z-11}", "${anchor_x+10}", "${anchor_z+10}"]
+        y: "${anchor_y+1}"
+        block: minecraft:dirt
+        spacing: 3
+  fake_players: []                # measured unnecessary; see the header
+  summons:
+    - type: minecraft:enderman
+      count: 20
+      tag: hunt_enderman          # run.py also adds detmc_summoned to every summon
+      nbt: "{PersistenceRequired:1b,Silent:1b}"
+      at:
+        mode: grid
+        origin: ["${anchor_x-10}", "${anchor_y+2}", "${anchor_z-10}"]
+        spacing: 5
+        cols: 5
+        # y is anchor_y+2, one above the loose-block layer, so no enderman is ever
+        # summoned inside a seeded block whatever the grids line up as; they drop
+        # one block on the first tick.
+
+detector:
+  kind: multi
+  # The datapack tick function runs every tick.  Checking every 20th tick instead
+  # costs 20x less and still samples 1200x finer than montecarlo, which scans once
+  # per in-game day and lists "patterns recycled inside one day are missed" as an
+  # under-bias (montecarlo/README.md, "Known simplifications").
+  check_every_ticks: 20
+  interval_ticks: 24000
+  stop_on_hit: all                # keep hunting until BOTH patterns have fired
+  detectors:
+    - name: pillar3
+      kind: column_stack
+      # strictly inside the wall at +-13, so the wall's own 4-high columns cannot
+      # register.  base_y is the first layer above the floor, so a hit means 3
+      # carried blocks stacked on the slab.
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      height: 3
+      air_block: minecraft:air
+    # The STRICT smiley (montecarlo/sim.py:226, matched by `pat('smiley', ...)` at
+    # sim.py:275 with forbid_rest on): all seven cells of the shape top out at the
+    # scan level AND the other 18 cells of the 5x5 window are clear at it.
+    #
+    # This replaced the relaxed smiley as a HIT after hunt-wave1 measured the
+    # relaxed one firing on 3 of 8 replicas inside the first 48,000 ticks
+    # (gametimes 9,239 / 33,119 / 33,539).  A detector that fires daily is not a
+    # detector, it is a census.  The relaxed count survives as a SCORE metric
+    # below, where "how close is this world" is exactly what it is good at.
+    - name: smiley_strict
+      kind: pattern
+      pattern: smiley_strict      # montecarlo/sim.py:226 + 247-265, see patterns.py
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      levels: 2                   # scan anchor_y+1 and anchor_y+2
+      air_block: minecraft:air
+
+# --- branching search (runner/branch.py) ------------------------------------
+# A detector is yes/no; a go-explore search needs "how close is this world".
+# These metrics are computed ON DEMAND (`function detmc:score` over rcon at a
+# checkpoint, while frozen), never per tick, so a plain run.py run pays nothing
+# for them beyond the extra .mcfunction files sitting unused in the pack.
+score:
+  metrics:
+    - name: stack
+      kind: column_stack_profile
+      # same interior as the pillar3 detector, so the numbers are about the same
+      # arena the detector watches
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      max_height: 4             # pillar h>=4 is 1.4e-4/enderman-year; 4 is plenty
+      air_block: minecraft:air
+      # -> stack_1..stack_4 (columns with >= h blocks), and the derived
+      #    stack_max (tallest column) and stack_blocks (total blocks in the pen)
+    - name: smiley
+      kind: pattern_best
+      pattern: smiley_relaxed
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      levels: 2
+      # -> smiley (most of the 12 pattern cells at one level in any window) and
+      #    smiley_gated (most mouth cells in a window that already has BOTH eyes,
+      #    -1 when no window has them).  smiley_gated >= 3 is a RELAXED smiley,
+      #    which hunt-wave1 measured as a near-daily event, so it ranks worlds
+      #    rather than stopping them.
+    - name: smiley_strict
+      kind: pattern_best
+      pattern: smiley_strict
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      levels: 2
+      # The strict-partial progress metric, and it costs nothing extra to define:
+      # `pattern_best` already counts `required + any_of` cells at the scan level,
+      # and the strict pattern has no any_of, so
+      # -> smiley_strict = the most of the SEVEN shape cells present at one level
+      #    in any window, 0..7, which is distance-to-hit in cells.
+      # -> smiley_strict_gated = 0 once some window has all seven (it is the max
+      #    over an empty any_of), -1 until then.  It does NOT check forbid_rest,
+      #    so it reads "the shape is there, possibly with company".
+  # Lexicographic, and the weights are chosen so it is strictly so rather than
+  # approximately so.  Ranges: stack_max 0..4, smiley_strict 0..7,
+  # max(smiley_gated, 0) 0..10, stack_blocks 0..64.  Each term's weight exceeds
+  # the largest possible sum of everything below it (64 < 100; 10*100+64 < 10000;
+  # 7*10000+1064 < 1000000), so a world never wins on a tiebreaker it should have
+  # lost on the term above.
+  #
+  # The order is the hunt's order of rarity, measured and modelled:
+  #   stack_max      the 3-stack is the rare event (montecarlo 0.021/enderman-yr)
+  #   smiley_strict  cells of the exact 7-cell shape, the other detector's target
+  #   smiley_gated   relaxed-smiley progress, dense enough to break ties
+  #   stack_blocks   material actually left in the pen, the densest signal there is
+  rank: "1000000*stack_max + 10000*smiley_strict + 100*max(smiley_gated, 0) + stack_blocks"
+
+# How a saved world is picked back up.  Measured 2026-09-12: a detmc world save
+# keeps its blocks, gametime, forceload, gamerules and datapack, and loses every
+# entity (entities/*.mca is always 0 bytes on detmc).  So the mobs are re-summoned
+# at the scenario's own grid, and the blocks that despawned in their hands are put
+# back, because the loose-block count is the arena's whole material budget.
+resume:
+  resummon: true
+  restore_material:
+    blocks: 64                  # = the L of setup.prep's scatter
+    count_metric: stack         # uses stack_blocks from `score` above
+    block: minecraft:dirt
+    grid:
+      area: ["${anchor_x-11}", "${anchor_z-11}", "${anchor_x+10}", "${anchor_z+10}"]
+      y: "${anchor_y+1}"
+      spacing: 3
+
+run:
+  # 365 * 24000 = one in-game year per replica (montecarlo/PARAMS.md, "Other model
+  # parameters").  montecarlo measures 0.0207 pillar-h>=3 and 0.0191 relaxed-smiley
+  # per enderman-year, so 20 endermen for one year is an expected 0.41 and 0.38
+  # FIRST hits per replica; over 30 replicas that is ~12 and ~11 expected events,
+  # which is enough to see the thing happen rather than to wait for a coin flip.
+  # A month-long run would put the whole fleet at ~1 event.
+  ticks: 8760000
+  # One in-game day per barrier: 365 freeze/read/unfreeze cycles per replica.  The
+  # hit gametime comes from the datapack's own score, not from the barrier, so a
+  # long segment costs resolution only in `check_every_ticks`, not here.  It costs
+  # THROUGHPUT though, and a lot: measured on this box, ticks/s per replica was 260
+  # at segment_ticks 3000, 480 at 12000 and 728 at 24000, because every barrier is a
+  # freeze, a sprint-completion poll and a detector read.
+  segment_ticks: 24000
+  # 10, not 30, and that is a measured host limit rather than a design choice.  Each
+  # replica holds ~1.5 GiB of RSS and this box had 18-27 GB free (44 GB of the 72 is
+  # other services), so 30 at once needs ~45 GB and does not fit; 10 needs ~15 GB and
+  # leaves headroom.  CPU is not the binding constraint (10 replicas ticking is
+  # 15-20 of 56 cores).  Run the full 30 as three waves:
+  #
+  #   run.py scenarios/enderman_hunt.yaml --run-id hunt-w1 --rng-seed-offset 0
+  #   run.py scenarios/enderman_hunt.yaml --run-id hunt-w2 --rng-seed-offset 10
+  #   run.py scenarios/enderman_hunt.yaml --run-id hunt-w3 --rng-seed-offset 20
+  #
+  # which gives rng seeds 1-10, 11-20 and 21-30 and three results.jsonl files to
+  # concatenate.  Raise `replicas` only after re-checking `free -g`.
+  replicas: 10
+  rng_seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  # `/detmc reseed <long>` is missing from older jars.  run.py probes for it during
+  # setup and skips the schedule with a warning when it is absent, so this key is
+  # safe to leave set.  --reseed off ignores it, --reseed on requires it.
+  reseed: []
+
+snapshots:
+  enabled: true
+  every_ticks: 720000             # 30 in-game days -> 12 frames per replica
+  render: true
+  image: mc-camera-chunky:2.5.0-478-mobs1   # the patched Chunky that draws endermen
+  # Inline camera, resolved per replica against that replica's anchor: the shared
+  # cams/*.json are pinned to seed 12345's spawn and are wrong on any other seed.
+  camera:
+    x: "${anchor_x-26}"
+    y: "${anchor_y+22}"
+    z: "${anchor_z-26}"
+    target: {x: "${anchor_x}", y: "${anchor_y+2}", z: "${anchor_z}"}
+    fov: 55
+    width: 1280
+    height: 720
+    samples: 32
+    chunk_radius: 4

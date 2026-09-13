@@ -1,0 +1,8 @@
+// Loader-agnostic core + mixins, compiled against Mojang-mapped Minecraft 26.2.
+// Not a loadable mod on its own; its classes are bundled into the loader jars.
+dependencies {
+    compileOnly rootProject.ext.minecraftClasspath(project)
+    // Mixin annotations + the loader's own Mixin fork. compileOnly: the common
+    // module never references net.fabricmc.* itself, so NeoForge can reuse it.
+    compileOnly "net.fabricmc:sponge-mixin:${project.sponge_mixin_version}"
+}

@@ -1,0 +1,32 @@
+dependencies {
+    compileOnly rootProject.ext.minecraftClasspath(project)
+    compileOnly "net.fabricmc:sponge-mixin:${project.sponge_mixin_version}"
+    compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
+    // Declared for phase 2 (nothing references it yet, so the mod loads on a
+    // bare Fabric Loader install with no extra jars in ./mods).
+    compileOnly "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    implementation project(':common')
+}
+
+processResources {
+    inputs.property 'version', project.mod_version
+    inputs.property 'loader_version', project.loader_version
+    inputs.property 'minecraft_version', project.minecraft_version
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.mod_version,
+            loader_version: project.loader_version,
+            minecraft_version: project.minecraft_version
+        )
+    }
+}
+
+// MC 26.2 + Fabric Loader 0.19.5 run in the official (Mojang) namespace, so the
+// plain jar IS the mod jar. Bundle common/ straight in.
+tasks.named('jar', Jar) {
+    archiveBaseName = project.mod_id
+    from project(':common').sourceSets.main.output
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest { attributes('Implementation-Version': project.mod_version) }
+}

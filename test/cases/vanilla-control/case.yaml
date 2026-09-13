@@ -1,0 +1,20 @@
+name: vanilla-control
+summary: >
+  The control. Same harness, same world, same jar, every determinism feature off, so
+  what is left is vanilla ordering. These two must NOT match. If this case stops
+  failing to match, the harness has gone blind and every other PASS is worthless.
+kind: pair
+expect: diverge
+ticks: 600
+world:
+  spawn_mobs: true
+jar:
+  seed: 1
+  trace_io: true
+  # Not an unmodded jar: the mod still provides freezeOnStart, so the harness attaches
+  # at the same point in both runs. Only the four ordering fixes are off, which is the
+  # comparison worth making.
+  flags: >-
+    -Ddetmc.syncRandom=false -Ddetmc.syncChunks=false
+    -Ddetmc.syncTasks=false -Ddetmc.syncReads=false
+timeout_s: 3600

@@ -1,0 +1,12 @@
+name: baseline-24k
+summary: >
+  Natural spawning, mob AI and random ticks over 24,000 ticks, the longest run the
+  mod is claimed to hold. Two servers from one seed, one uninterrupted segment.
+kind: pair
+expect: match
+ticks: 24000
+world:
+  spawn_mobs: true
+jar:
+  seed: 1
+timeout_s: 7200

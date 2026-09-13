@@ -1,0 +1,41 @@
+# Case: sweep-control -- the sweep world with the phase-8 fixes switched off.
+#
+# Same pack, same probes, same tick count as `sweep`; the only difference is
+# -Ddetmc.syncRandom=false, which restores vanilla at all thirteen sites at once
+# (DetExecutors.syncRandom(), common/src/main/java/dev/detmc/DetExecutors.java).
+#
+# This is the control that makes the `sweep` result mean something.  If this case also
+# matched at every gametime, the script would not be reaching the fixed code and the
+# PASS in `sweep` would be evidence of nothing.
+name: sweep-control
+summary: >
+  The `sweep` world with -Ddetmc.syncRandom=false, so all thirteen fixes are off.
+  Expected to diverge; it is the control for `sweep`.
+kind: external
+script: sweep-control-pair.sh
+compose: compose-sweep.yml
+expect: diverge
+inherit: sweep             # pack/ and probes.txt come from cases/sweep, so the two
+                           # cases cannot drift apart
+ticks: 12000
+checkpoints: [3000, 6000, 9000, 12000]
+
+world:
+  seed: 12345
+  spawn_mobs: false
+  view_distance: 4
+  simulation_distance: 4
+  memory: 2G
+  level_type: minecraft:flat
+
+jar:
+  seed: 1
+  trace_io: true
+  flags: "-Ddetmc.syncRandom=false"
+
+self:
+  player: true
+  pack: pack
+  pack_name: detmc_sweep
+  pack_namespace: detmc_sweep
+  probes: probes.txt

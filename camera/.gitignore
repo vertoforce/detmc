@@ -1,0 +1,13 @@
+# Mojang client jar (textures) - fetched by ./fetch-textures.sh, not ours to commit
+cache/
+# throwaway test server world
+testsrv/data/
+# render scratch
+timelapse-*/
+out/*.png
+__pycache__/
+# Chunky source checkout + gradle cache (see build-chunky.sh, chunky-mobs.patch)
+chunky-src/
+# jar built by build-chunky.sh
+dist/
+out/

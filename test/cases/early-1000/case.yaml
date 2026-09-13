@@ -1,0 +1,14 @@
+name: early-1000
+summary: >
+  The first 1,000 ticks at fine grain. Checkpoints at 0, 1, 5, 20, 100 and 300 date an
+  early divergence to a handful of ticks instead of to a whole run.
+kind: pair
+expect: match
+ticks: 1000
+checkpoints: [0, 1, 5, 20, 100, 300, 1000]
+world:
+  spawn_mobs: true
+jar:
+  seed: 1
+  trace_io: true
+timeout_s: 3600

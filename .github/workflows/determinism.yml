@@ -1,0 +1,79 @@
+# Determinism cases. Not on push: a full run needs Docker, about 5 GB of RAM and
+# twenty minutes per long case, which is not what a pull request should wait for.
+#
+# Runner sizing, measured on this project's own host:
+#   Each replica is one Minecraft server, 2 GB heap, about 3 GB of container RSS.
+#   Replicas run one at a time, so peak is one server, but runner/memgate.py asks
+#   for a pair's worth (5 GB) before each launch.
+#
+#   Standard GitHub-hosted ubuntu-latest is 4 vCPU / 16 GB RAM / 14 GB SSD.
+#   Measured on this project's host, replicas one at a time: vanilla-control
+#   5.1 min, early-1000 6.6 min, baseline-24k 8.1 min, replay-from-save 8.7 min,
+#   reseed 10.1 min. All five fit 16 GB, because peak is one 2 GB server.
+#   Disk is the reason to prefer a self-hosted runner for early-1000 and
+#   vanilla-control: both set trace_io, which writes hundreds of log lines per
+#   tick and several GB into the container log, against 14 GB of runner SSD.
+#
+#   DETMC_MEM_RESERVE_MB below matters: memgate defaults to leaving 12 GB to the
+#   host, which a 16 GB runner can never satisfy, so the gate would block forever.
+#
+# This workflow reads and reports. It does not push, publish or release.
+name: determinism
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: "Space-separated case names, or 'all'"
+        default: "early-1000 vanilla-control"
+        required: false
+  schedule:
+    - cron: "17 6 * * 0"    # Sundays 06:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: determinism
+  cancel-in-progress: false
+
+jobs:
+  cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      # 2 GB left to the runner instead of the 12 GB the workstation gate keeps.
+      DETMC_MEM_RESERVE_MB: "2048"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the Minecraft server jar and its libraries
+        # Downloaded from Mojang at build time. libs/ is gitignored and stays that way.
+        run: ./fetch-deps.sh
+
+      - name: Build the mod
+        run: ./docker-gradle.sh :fabric:build
+
+      - name: Install PyYAML for the runner
+        run: python3 -m pip install --user pyyaml
+
+      - name: Run the cases
+        run: |
+          set -eu
+          want='${{ github.event.inputs.cases }}'
+          [ -n "$want" ] || want=all
+          if [ "$want" = all ]; then
+            args="--all"
+          else
+            args=""
+            for c in $want; do args="$args --case $c"; done
+          fi
+          test/run-tests.sh $args --no-build --junit test/results.xml
+
+      - name: Upload the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-junit
+          path: test/results.xml
+          if-no-files-found: warn

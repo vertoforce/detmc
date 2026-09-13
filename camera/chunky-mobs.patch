@@ -1,0 +1,846 @@
+diff --git a/chunky/src/java/se/llbit/chunky/entity/EndermanEntity.java b/chunky/src/java/se/llbit/chunky/entity/EndermanEntity.java
+new file mode 100644
+index 00000000..756bddd7
+--- /dev/null
++++ b/chunky/src/java/se/llbit/chunky/entity/EndermanEntity.java
+@@ -0,0 +1,282 @@
++/* Copyright (c) 2026 Chunky contributors
++ *
++ * This file is part of Chunky.
++ *
++ * Chunky is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * Chunky is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ * You should have received a copy of the GNU General Public License
++ * along with Chunky.  If not, see <http://www.gnu.org/licenses/>.
++ */
++package se.llbit.chunky.entity;
++
++import se.llbit.chunky.block.Block;
++import se.llbit.chunky.block.BlockProvider;
++import se.llbit.chunky.block.BlockSpec;
++import se.llbit.chunky.model.builder.BoxModelBuilder;
++import se.llbit.chunky.resources.Texture;
++import se.llbit.chunky.world.Material;
++import se.llbit.chunky.world.material.TextureMaterial;
++import se.llbit.json.JsonObject;
++import se.llbit.json.JsonValue;
++import se.llbit.math.Quad;
++import se.llbit.math.QuickMath;
++import se.llbit.math.Transform;
++import se.llbit.math.Vector3;
++import se.llbit.math.primitive.Primitive;
++import se.llbit.nbt.CompoundTag;
++import se.llbit.nbt.Tag;
++import se.llbit.util.JsonUtil;
++
++import java.util.ArrayList;
++import java.util.Collection;
++
++/**
++ * An enderman. Geometry follows vanilla EndermanModel (a HumanoidModel mesh with a
++ * -14 pixel y offset and 30 pixel long limbs) on a 64x32 texture.
++ * <p>
++ * Vanilla model coordinates are y-down with the origin 24 pixels above the feet;
++ * Chunky's are y-up with the origin at the feet, so each box is built with its own
++ * pivot at the origin and y negated, then translated to (pivot.x, 24 - pivot.y, pivot.z).
++ */
++public class EndermanEntity extends Entity implements Poseable {
++
++  private static final Quad[] head = new BoxModelBuilder()
++    .addBox(new Vector3(-4 / 16.0, 0, -4 / 16.0), new Vector3(4 / 16.0, 8 / 16.0, 4 / 16.0), box ->
++      box.forTextureSize(64, 32).atUVCoordinates(0, 0).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  /** Same box as the head, grown a hair so the emissive eye overlay does not z-fight. */
++  private static final Quad[] eyes = new BoxModelBuilder()
++    .addBox(new Vector3(-4 / 16.0, 0, -4 / 16.0), new Vector3(4 / 16.0, 8 / 16.0, 4 / 16.0), box ->
++      box.forTextureSize(64, 32).atUVCoordinates(0, 0).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++        .grow(0.001)
++    ).toQuads();
++
++  private static final Quad[] body = new BoxModelBuilder()
++    .addBox(new Vector3(-4 / 16.0, -12 / 16.0, -2 / 16.0), new Vector3(4 / 16.0, 0, 2 / 16.0), box ->
++      box.forTextureSize(64, 32).atUVCoordinates(32, 16).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final Quad[] arm = new BoxModelBuilder()
++    .addBox(new Vector3(-1 / 16.0, -28 / 16.0, -1 / 16.0), new Vector3(1 / 16.0, 2 / 16.0, 1 / 16.0), box ->
++      box.forTextureSize(64, 32).atUVCoordinates(56, 0).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final Quad[] leg = new BoxModelBuilder()
++    .addBox(new Vector3(-1 / 16.0, -30 / 16.0, -1 / 16.0), new Vector3(1 / 16.0, 0, 1 / 16.0), box ->
++      box.forTextureSize(64, 32).atUVCoordinates(56, 0).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  /** Unit cube for the carried block, centred on the origin. */
++  private static final Quad[] carried = new BoxModelBuilder()
++    .addBox(new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5), box ->
++      box.forTextureSize(16, 16).atUVCoordinates(0, 0)
++        .addTopFace(s -> s.set(0, 16, 0, 16))
++        .addBottomFace(s -> s.set(0, 16, 0, 16))
++        .addLeftFace(s -> s.set(0, 16, 0, 16))
++        .addRightFace(s -> s.set(0, 16, 0, 16))
++        .addFrontFace(s -> s.set(0, 16, 0, 16))
++        .addBackFace(s -> s.set(0, 16, 0, 16))
++    ).toQuads();
++
++  private static final String[] partNames =
++    {"all", "head", "body", "left_arm", "right_arm", "left_leg", "right_leg"};
++
++  private final JsonObject pose;
++  private double scale = 1;
++  private double headScale = 1;
++  /** Block held over the enderman's hands, or null. */
++  private final CompoundTag carriedBlock;
++
++  public EndermanEntity(Vector3 position, CompoundTag tag) {
++    super(position);
++
++    Tag rotation = tag.get("Rotation");
++    double yaw = rotation.get(0).floatValue();
++    double pitch = rotation.get(1).floatValue();
++
++    Tag carried = tag.get("carriedBlockState");
++    this.carriedBlock = carried.isCompoundTag() ? carried.asCompound() : null;
++
++    pose = new JsonObject();
++    pose.add("all", JsonUtil.vec3ToJson(new Vector3(0, QuickMath.degToRad(180 - yaw), 0)));
++    pose.add("head", JsonUtil.vec3ToJson(new Vector3(QuickMath.degToRad(-pitch), 0, 0)));
++  }
++
++  public EndermanEntity(JsonObject json) {
++    super(JsonUtil.vec3FromJsonObject(json.get("position")));
++    this.scale = json.get("scale").asDouble(1);
++    this.headScale = json.get("headScale").asDouble(1);
++    this.pose = json.get("pose").object();
++    this.carriedBlock = null;
++  }
++
++  @Override
++  public Collection<Primitive> primitives(Vector3 offset) {
++    ArrayList<Primitive> faces = new ArrayList<>();
++
++    TextureMaterial skin = new TextureMaterial(Texture.enderman);
++    TextureMaterial eyeMaterial = new TextureMaterial(Texture.endermanEyes);
++    eyeMaterial.emittance = 1.0f;
++
++    Vector3 allPose = JsonUtil.vec3FromJsonArray(pose.get("all"));
++    Vector3 headPose = JsonUtil.vec3FromJsonArray(pose.get("head"));
++    Vector3 bodyPose = JsonUtil.vec3FromJsonArray(pose.get("body"));
++    Vector3 leftArmPose = JsonUtil.vec3FromJsonArray(pose.get("left_arm"));
++    Vector3 rightArmPose = JsonUtil.vec3FromJsonArray(pose.get("right_arm"));
++    Vector3 leftLegPose = JsonUtil.vec3FromJsonArray(pose.get("left_leg"));
++    Vector3 rightLegPose = JsonUtil.vec3FromJsonArray(pose.get("right_leg"));
++
++    Vector3 worldOffset = new Vector3(position.x + offset.x, position.y + offset.y, position.z + offset.z);
++    Transform worldTransform = Transform.NONE
++      .scale(scale)
++      .rotateX(allPose.x)
++      .rotateY(allPose.y)
++      .rotateZ(allPose.z)
++      .translate(worldOffset);
++
++    Transform transform = Transform.NONE
++      .rotateX(headPose.x).rotateY(headPose.y).rotateZ(headPose.z)
++      .scale(headScale)
++      .translate(0, 38 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : head) {
++      quad.addTriangles(faces, skin, transform);
++    }
++    for (Quad quad : eyes) {
++      quad.addTriangles(faces, eyeMaterial, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(bodyPose.x).rotateY(bodyPose.y).rotateZ(bodyPose.z)
++      .translate(0, 38 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : body) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(rightArmPose.x).rotateY(rightArmPose.y).rotateZ(rightArmPose.z)
++      .translate(5 / 16.0, 36 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : arm) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(leftArmPose.x).rotateY(leftArmPose.y).rotateZ(leftArmPose.z)
++      .translate(-5 / 16.0, 36 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : arm) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(rightLegPose.x).rotateY(rightLegPose.y).rotateZ(rightLegPose.z)
++      .translate(2 / 16.0, 29 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : leg) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(leftLegPose.x).rotateY(leftLegPose.y).rotateZ(leftLegPose.z)
++      .translate(-2 / 16.0, 29 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : leg) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    Material carriedMaterial = carriedBlockMaterial();
++    if (carriedMaterial != null) {
++      // Vanilla holds the block half size, 0.6875 below the model origin and 0.75
++      // in front, tilted; this reproduces the placement, not the exact tilt chain.
++      transform = Transform.NONE
++        .scale(0.5)
++        .rotateY(Math.toRadians(45))
++        .rotateX(Math.toRadians(-20))
++        .translate(0, 0.8125, -0.75)
++        .chain(worldTransform);
++      for (Quad quad : carried) {
++        quad.addTriangles(faces, carriedMaterial, transform);
++      }
++    }
++
++    return faces;
++  }
++
++  /** Resolves carriedBlockState through the registered block providers. */
++  private Material carriedBlockMaterial() {
++    if (carriedBlock == null) {
++      return null;
++    }
++    String name = carriedBlock.get("Name").stringValue("");
++    if (name.isEmpty() || name.equals("minecraft:air")) {
++      return null;
++    }
++    for (BlockProvider provider : BlockSpec.blockProviders) {
++      Block block = provider.getBlockByTag(name, carriedBlock);
++      if (block != null) {
++        return block;
++      }
++    }
++    return null;
++  }
++
++  @Override
++  public JsonValue toJson() {
++    JsonObject json = new JsonObject();
++    json.add("kind", "enderman");
++    json.add("position", position.toJson());
++    json.add("scale", getScale());
++    json.add("headScale", headScale);
++    json.add("pose", pose);
++    return json;
++  }
++
++  public static Entity fromJson(JsonObject json) {
++    return new EndermanEntity(json);
++  }
++
++  @Override
++  public String[] partNames() {
++    return partNames;
++  }
++
++  @Override
++  public double getScale() {
++    return scale;
++  }
++
++  @Override
++  public void setScale(double value) {
++    scale = value;
++  }
++
++  @Override
++  public void setHeadScale(double value) {
++    headScale = value;
++  }
++
++  @Override
++  public double getHeadScale() {
++    return headScale;
++  }
++
++  @Override
++  public JsonObject getPose() {
++    return pose;
++  }
++}
+diff --git a/chunky/src/java/se/llbit/chunky/entity/Entity.java b/chunky/src/java/se/llbit/chunky/entity/Entity.java
+index 09744ce5..732d3d26 100644
+--- a/chunky/src/java/se/llbit/chunky/entity/Entity.java
++++ b/chunky/src/java/se/llbit/chunky/entity/Entity.java
+@@ -112,6 +112,9 @@ abstract public class Entity {
+       case "pig" -> entities.add(PigEntity.fromJson(json));
+       case "mooshroom" -> entities.add(MooshroomEntity.fromJson(json));
+       case "squid" -> entities.add(SquidEntity.fromJson(json));
++      case "enderman" -> entities.add(EndermanEntity.fromJson(json));
++      case "zombie" -> entities.add(ZombieEntity.fromJson(json));
++      case "villager" -> entities.add(VillagerEntity.fromJson(json));
+       case "copperGolemStatue" -> entities.add(CopperGolemStatueEntity.fromJson(json));
+       default -> Log.errorf("Found unknown entity %s when loading from scene.", kind);
+     }
+diff --git a/chunky/src/java/se/llbit/chunky/entity/VillagerEntity.java b/chunky/src/java/se/llbit/chunky/entity/VillagerEntity.java
+new file mode 100644
+index 00000000..2766a0b2
+--- /dev/null
++++ b/chunky/src/java/se/llbit/chunky/entity/VillagerEntity.java
+@@ -0,0 +1,255 @@
++/* Copyright (c) 2026 Chunky contributors
++ *
++ * This file is part of Chunky.
++ *
++ * Chunky is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * Chunky is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ * You should have received a copy of the GNU General Public License
++ * along with Chunky.  If not, see <http://www.gnu.org/licenses/>.
++ */
++package se.llbit.chunky.entity;
++
++import se.llbit.chunky.model.builder.BoxModelBuilder;
++import se.llbit.chunky.resources.Texture;
++import se.llbit.chunky.world.material.TextureMaterial;
++import se.llbit.json.JsonObject;
++import se.llbit.json.JsonValue;
++import se.llbit.math.Quad;
++import se.llbit.math.QuickMath;
++import se.llbit.math.Transform;
++import se.llbit.math.Vector3;
++import se.llbit.math.primitive.Primitive;
++import se.llbit.nbt.CompoundTag;
++import se.llbit.nbt.Tag;
++import se.llbit.util.JsonUtil;
++
++import java.util.ArrayList;
++import java.util.Collection;
++
++/**
++ * A villager: vanilla VillagerModel (head with nose, body plus robe overlay, one
++ * crossed-arms part, two legs) on the plain 64x64 villager texture. Profession and
++ * biome overlays are not drawn. Coordinates converted from vanilla model space
++ * (y-down, origin 24px above the feet) the same way as {@link EndermanEntity}.
++ */
++public class VillagerEntity extends Entity implements Poseable {
++
++  /** Overlay layers are grown a hair so they do not z-fight with the base model. */
++  private static final double OVERLAY = 0.002;
++
++  private static Quad[] box(double x0, double y0, double z0, double x1, double y1, double z1,
++                            int u, int v, double grow) {
++    return new BoxModelBuilder()
++      .addBox(new Vector3(x0 / 16.0, y0 / 16.0, z0 / 16.0), new Vector3(x1 / 16.0, y1 / 16.0, z1 / 16.0), b ->
++        b.forTextureSize(64, 64).atUVCoordinates(u, v).flipX()
++          .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++          .grow(grow)
++      ).toQuads();
++  }
++
++  private static Quad[][] parts(double grow) {
++    return new Quad[][] {
++      box(-4, 0, -4, 4, 10, 4, 0, 0, grow),        // head
++      box(-1, -3, -6, 1, 1, -4, 24, 0, grow),      // nose
++      box(-4, -12, -3, 4, 0, 3, 16, 20, grow),     // body
++      box(-4, -18, -3, 4, 0, 3, 0, 38, grow + 0.5 / 16.0), // robe
++      box(4, -6, -2, 8, 2, 2, 44, 22, grow),       // right upper arm
++      box(-8, -6, -2, -4, 2, 2, 44, 22, grow),     // left upper arm
++      box(-4, -6, -2, 4, -2, 2, 40, 38, grow),     // crossed forearms
++      box(-2, -12, -2, 2, 0, 2, 0, 22, grow),      // leg
++    };
++  }
++
++  private static final Quad[][] base = parts(0);
++  private static final Quad[][] overlay = parts(OVERLAY);
++
++  private static final int HEAD = 0, NOSE = 1, BODY = 2, ROBE = 3,
++    ARM_RIGHT = 4, ARM_LEFT = 5, FOREARMS = 6, LEG = 7;
++
++  private static final String[] partNames = {"all", "head", "body", "arms", "left_leg", "right_leg"};
++
++  private final JsonObject pose;
++  private double scale = 1;
++  private double headScale = 1;
++  /** Biome variant from VillagerData, e.g. minecraft:plains. */
++  private final String type;
++
++  public VillagerEntity(Vector3 position, CompoundTag tag) {
++    super(position);
++
++    Tag rotation = tag.get("Rotation");
++    double yaw = rotation.get(0).floatValue();
++    double pitch = rotation.get(1).floatValue();
++
++    type = tag.get("VillagerData").get("type").stringValue("minecraft:plains");
++
++    if (tag.get("Age").intValue(0) < 0) {
++      this.scale = 0.5;
++      this.headScale = 1.5;
++    }
++
++    pose = new JsonObject();
++    pose.add("all", JsonUtil.vec3ToJson(new Vector3(0, QuickMath.degToRad(180 - yaw), 0)));
++    pose.add("head", JsonUtil.vec3ToJson(new Vector3(QuickMath.degToRad(-pitch), 0, 0)));
++    // Vanilla poses the arms part at xRot -0.75 rad, which is +0.75 in Chunky's space.
++    pose.add("arms", JsonUtil.vec3ToJson(new Vector3(0.75, 0, 0)));
++  }
++
++  public VillagerEntity(JsonObject json) {
++    super(JsonUtil.vec3FromJsonObject(json.get("position")));
++    this.scale = json.get("scale").asDouble(1);
++    this.headScale = json.get("headScale").asDouble(1);
++    this.pose = json.get("pose").object();
++    this.type = json.get("type").asString("minecraft:plains");
++  }
++
++  @Override
++  public Collection<Primitive> primitives(Vector3 offset) {
++    ArrayList<Primitive> faces = new ArrayList<>();
++
++    Vector3 allPose = JsonUtil.vec3FromJsonArray(pose.get("all"));
++    Vector3 headPose = JsonUtil.vec3FromJsonArray(pose.get("head"));
++    Vector3 bodyPose = JsonUtil.vec3FromJsonArray(pose.get("body"));
++    Vector3 armsPose = JsonUtil.vec3FromJsonArray(pose.get("arms"));
++    Vector3 leftLegPose = JsonUtil.vec3FromJsonArray(pose.get("left_leg"));
++    Vector3 rightLegPose = JsonUtil.vec3FromJsonArray(pose.get("right_leg"));
++
++    Vector3 worldOffset = new Vector3(position.x + offset.x, position.y + offset.y, position.z + offset.z);
++    Transform worldTransform = Transform.NONE
++      .scale(scale)
++      .rotateX(allPose.x)
++      .rotateY(allPose.y)
++      .rotateZ(allPose.z)
++      .translate(worldOffset);
++
++    Transform headTransform = Transform.NONE
++      .rotateX(headPose.x).rotateY(headPose.y).rotateZ(headPose.z)
++      .scale(headScale)
++      .translate(0, 24 / 16.0, 0)
++      .chain(worldTransform);
++    // The nose hangs off the head, so it follows the head's pose about the head pivot.
++    Transform noseTransform = Transform.NONE
++      .translate(0, 2 / 16.0, 0)
++      .rotateX(headPose.x).rotateY(headPose.y).rotateZ(headPose.z)
++      .scale(headScale)
++      .translate(0, 24 / 16.0, 0)
++      .chain(worldTransform);
++    Transform bodyTransform = Transform.NONE
++      .rotateX(bodyPose.x).rotateY(bodyPose.y).rotateZ(bodyPose.z)
++      .translate(0, 24 / 16.0, 0)
++      .chain(worldTransform);
++    Transform armsTransform = Transform.NONE
++      .rotateX(armsPose.x).rotateY(armsPose.y).rotateZ(armsPose.z)
++      .translate(0, 21 / 16.0, -1 / 16.0)
++      .chain(worldTransform);
++    Transform rightLegTransform = Transform.NONE
++      .rotateX(rightLegPose.x).rotateY(rightLegPose.y).rotateZ(rightLegPose.z)
++      .translate(2 / 16.0, 12 / 16.0, 0)
++      .chain(worldTransform);
++    Transform leftLegTransform = Transform.NONE
++      .rotateX(leftLegPose.x).rotateY(leftLegPose.y).rotateZ(leftLegPose.z)
++      .translate(-2 / 16.0, 12 / 16.0, 0)
++      .chain(worldTransform);
++
++    // Layer 1 is the bare villager, layer 2 the biome-type overlay that carries the
++    // robe. Since 26.2 the base texture has no robe at all, so both are needed.
++    Quad[][][] layers = {base, overlay};
++    TextureMaterial[] materials = {
++      new TextureMaterial(Texture.villager), new TextureMaterial(typeTexture())
++    };
++    for (int layer = 0; layer < layers.length; layer++) {
++      Quad[][] part = layers[layer];
++      TextureMaterial material = materials[layer];
++      addAll(faces, part[HEAD], material, headTransform);
++      addAll(faces, part[NOSE], material, noseTransform);
++      addAll(faces, part[BODY], material, bodyTransform);
++      addAll(faces, part[ROBE], material, bodyTransform);
++      addAll(faces, part[ARM_RIGHT], material, armsTransform);
++      addAll(faces, part[ARM_LEFT], material, armsTransform);
++      addAll(faces, part[FOREARMS], material, armsTransform);
++      addAll(faces, part[LEG], material, rightLegTransform);
++      addAll(faces, part[LEG], material, leftLegTransform);
++    }
++
++    return faces;
++  }
++
++  private static void addAll(ArrayList<Primitive> faces, Quad[] quads,
++                             TextureMaterial material, Transform transform) {
++    for (Quad quad : quads) {
++      quad.addTriangles(faces, material, transform);
++    }
++  }
++
++  private Texture typeTexture() {
++    switch (type) {
++      case "minecraft:desert":
++        return Texture.villagerDesert;
++      case "minecraft:jungle":
++        return Texture.villagerJungle;
++      case "minecraft:savanna":
++        return Texture.villagerSavanna;
++      case "minecraft:snow":
++        return Texture.villagerSnow;
++      case "minecraft:swamp":
++        return Texture.villagerSwamp;
++      case "minecraft:taiga":
++        return Texture.villagerTaiga;
++      default:
++        return Texture.villagerPlains;
++    }
++  }
++
++  @Override
++  public JsonValue toJson() {
++    JsonObject json = new JsonObject();
++    json.add("kind", "villager");
++    json.add("position", position.toJson());
++    json.add("scale", getScale());
++    json.add("headScale", headScale);
++    json.add("pose", pose);
++    json.add("type", type);
++    return json;
++  }
++
++  public static Entity fromJson(JsonObject json) {
++    return new VillagerEntity(json);
++  }
++
++  @Override
++  public String[] partNames() {
++    return partNames;
++  }
++
++  @Override
++  public double getScale() {
++    return scale;
++  }
++
++  @Override
++  public void setScale(double value) {
++    scale = value;
++  }
++
++  @Override
++  public void setHeadScale(double value) {
++    headScale = value;
++  }
++
++  @Override
++  public double getHeadScale() {
++    return headScale;
++  }
++
++  @Override
++  public JsonObject getPose() {
++    return pose;
++  }
++}
+diff --git a/chunky/src/java/se/llbit/chunky/entity/ZombieEntity.java b/chunky/src/java/se/llbit/chunky/entity/ZombieEntity.java
+new file mode 100644
+index 00000000..b8a16902
+--- /dev/null
++++ b/chunky/src/java/se/llbit/chunky/entity/ZombieEntity.java
+@@ -0,0 +1,229 @@
++/* Copyright (c) 2026 Chunky contributors
++ *
++ * This file is part of Chunky.
++ *
++ * Chunky is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * Chunky is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ * You should have received a copy of the GNU General Public License
++ * along with Chunky.  If not, see <http://www.gnu.org/licenses/>.
++ */
++package se.llbit.chunky.entity;
++
++import se.llbit.chunky.model.builder.BoxModelBuilder;
++import se.llbit.chunky.resources.Texture;
++import se.llbit.chunky.world.material.TextureMaterial;
++import se.llbit.json.JsonObject;
++import se.llbit.json.JsonValue;
++import se.llbit.math.Quad;
++import se.llbit.math.QuickMath;
++import se.llbit.math.Transform;
++import se.llbit.math.Vector3;
++import se.llbit.math.primitive.Primitive;
++import se.llbit.nbt.CompoundTag;
++import se.llbit.nbt.Tag;
++import se.llbit.util.JsonUtil;
++
++import java.util.ArrayList;
++import java.util.Collection;
++
++/**
++ * A zombie: the vanilla HumanoidModel mesh on the 64x64 zombie texture, arms held
++ * out in front as vanilla does for a zombie. Coordinates converted from vanilla
++ * model space (y-down, origin 24px above the feet) the same way as
++ * {@link EndermanEntity}.
++ */
++public class ZombieEntity extends Entity implements Poseable {
++
++  private static final Quad[] head = new BoxModelBuilder()
++    .addBox(new Vector3(-4 / 16.0, 0, -4 / 16.0), new Vector3(4 / 16.0, 8 / 16.0, 4 / 16.0), box ->
++      box.forTextureSize(64, 64).atUVCoordinates(0, 0).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final Quad[] body = new BoxModelBuilder()
++    .addBox(new Vector3(-4 / 16.0, -12 / 16.0, -2 / 16.0), new Vector3(4 / 16.0, 0, 2 / 16.0), box ->
++      box.forTextureSize(64, 64).atUVCoordinates(16, 16).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  /** Right arm, pivot at the shoulder. Chunky's x is mirrored against vanilla's. */
++  private static final Quad[] rightArm = new BoxModelBuilder()
++    .addBox(new Vector3(-1 / 16.0, -10 / 16.0, -2 / 16.0), new Vector3(3 / 16.0, 2 / 16.0, 2 / 16.0), box ->
++      box.forTextureSize(64, 64).atUVCoordinates(40, 16).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final Quad[] leftArm = new BoxModelBuilder()
++    .addBox(new Vector3(-3 / 16.0, -10 / 16.0, -2 / 16.0), new Vector3(1 / 16.0, 2 / 16.0, 2 / 16.0), box ->
++      box.forTextureSize(64, 64).atUVCoordinates(40, 16).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final Quad[] leg = new BoxModelBuilder()
++    .addBox(new Vector3(-2 / 16.0, -12 / 16.0, -2 / 16.0), new Vector3(2 / 16.0, 0, 2 / 16.0), box ->
++      box.forTextureSize(64, 64).atUVCoordinates(0, 16).flipX()
++        .addTopFace().addBottomFace().addLeftFace().addRightFace().addFrontFace().addBackFace()
++    ).toQuads();
++
++  private static final String[] partNames =
++    {"all", "head", "body", "left_arm", "right_arm", "left_leg", "right_leg"};
++
++  private final JsonObject pose;
++  private double scale = 1;
++  private double headScale = 1;
++
++  public ZombieEntity(Vector3 position, CompoundTag tag) {
++    super(position);
++
++    Tag rotation = tag.get("Rotation");
++    double yaw = rotation.get(0).floatValue();
++    double pitch = rotation.get(1).floatValue();
++
++    if (tag.get("IsBaby").boolValue(false)) {
++      this.scale = 0.5;
++      this.headScale = 1.5;
++    }
++
++    // Zombies always reach forward; vanilla animates both arms to about -90 degrees
++    // in model space, which is +90 in Chunky's (y-up) space.
++    Vector3 armPose = new Vector3(QuickMath.degToRad(90), 0, 0);
++
++    pose = new JsonObject();
++    pose.add("all", JsonUtil.vec3ToJson(new Vector3(0, QuickMath.degToRad(180 - yaw), 0)));
++    pose.add("head", JsonUtil.vec3ToJson(new Vector3(QuickMath.degToRad(-pitch), 0, 0)));
++    pose.add("left_arm", JsonUtil.vec3ToJson(armPose));
++    pose.add("right_arm", JsonUtil.vec3ToJson(armPose));
++  }
++
++  public ZombieEntity(JsonObject json) {
++    super(JsonUtil.vec3FromJsonObject(json.get("position")));
++    this.scale = json.get("scale").asDouble(1);
++    this.headScale = json.get("headScale").asDouble(1);
++    this.pose = json.get("pose").object();
++  }
++
++  @Override
++  public Collection<Primitive> primitives(Vector3 offset) {
++    ArrayList<Primitive> faces = new ArrayList<>();
++    TextureMaterial skin = new TextureMaterial(Texture.zombie);
++
++    Vector3 allPose = JsonUtil.vec3FromJsonArray(pose.get("all"));
++    Vector3 headPose = JsonUtil.vec3FromJsonArray(pose.get("head"));
++    Vector3 bodyPose = JsonUtil.vec3FromJsonArray(pose.get("body"));
++    Vector3 leftArmPose = JsonUtil.vec3FromJsonArray(pose.get("left_arm"));
++    Vector3 rightArmPose = JsonUtil.vec3FromJsonArray(pose.get("right_arm"));
++    Vector3 leftLegPose = JsonUtil.vec3FromJsonArray(pose.get("left_leg"));
++    Vector3 rightLegPose = JsonUtil.vec3FromJsonArray(pose.get("right_leg"));
++
++    Vector3 worldOffset = new Vector3(position.x + offset.x, position.y + offset.y, position.z + offset.z);
++    Transform worldTransform = Transform.NONE
++      .scale(scale)
++      .rotateX(allPose.x)
++      .rotateY(allPose.y)
++      .rotateZ(allPose.z)
++      .translate(worldOffset);
++
++    Transform transform = Transform.NONE
++      .rotateX(headPose.x).rotateY(headPose.y).rotateZ(headPose.z)
++      .scale(headScale)
++      .translate(0, 24 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : head) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(bodyPose.x).rotateY(bodyPose.y).rotateZ(bodyPose.z)
++      .translate(0, 24 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : body) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(rightArmPose.x).rotateY(rightArmPose.y).rotateZ(rightArmPose.z)
++      .translate(5 / 16.0, 22 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : rightArm) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(leftArmPose.x).rotateY(leftArmPose.y).rotateZ(leftArmPose.z)
++      .translate(-5 / 16.0, 22 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : leftArm) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(rightLegPose.x).rotateY(rightLegPose.y).rotateZ(rightLegPose.z)
++      .translate(1.9 / 16.0, 12 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : leg) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    transform = Transform.NONE
++      .rotateX(leftLegPose.x).rotateY(leftLegPose.y).rotateZ(leftLegPose.z)
++      .translate(-1.9 / 16.0, 12 / 16.0, 0)
++      .chain(worldTransform);
++    for (Quad quad : leg) {
++      quad.addTriangles(faces, skin, transform);
++    }
++
++    return faces;
++  }
++
++  @Override
++  public JsonValue toJson() {
++    JsonObject json = new JsonObject();
++    json.add("kind", "zombie");
++    json.add("position", position.toJson());
++    json.add("scale", getScale());
++    json.add("headScale", headScale);
++    json.add("pose", pose);
++    return json;
++  }
++
++  public static Entity fromJson(JsonObject json) {
++    return new ZombieEntity(json);
++  }
++
++  @Override
++  public String[] partNames() {
++    return partNames;
++  }
++
++  @Override
++  public double getScale() {
++    return scale;
++  }
++
++  @Override
++  public void setScale(double value) {
++    scale = value;
++  }
++
++  @Override
++  public void setHeadScale(double value) {
++    headScale = value;
++  }
++
++  @Override
++  public double getHeadScale() {
++    return headScale;
++  }
++
++  @Override
++  public JsonObject getPose() {
++    return pose;
++  }
++}
+diff --git a/chunky/src/java/se/llbit/chunky/renderer/scene/SceneEntities.java b/chunky/src/java/se/llbit/chunky/renderer/scene/SceneEntities.java
+index 0a77309b..a47eb058 100644
+--- a/chunky/src/java/se/llbit/chunky/renderer/scene/SceneEntities.java
++++ b/chunky/src/java/se/llbit/chunky/renderer/scene/SceneEntities.java
+@@ -174,6 +174,12 @@ public class SceneEntities {
+             addActor(new MooshroomEntity(new Vector3(x, y, z), tag));
+           } else if ((id.equals("minecraft:squid") || id.equals("Squid")) && entityLoadingPreferences.shouldLoadClass(SquidEntity.class)) {
+             addActor(new SquidEntity(new Vector3(x, y, z), tag));
++          } else if ((id.equals("minecraft:enderman") || id.equals("Enderman")) && entityLoadingPreferences.shouldLoadClass(EndermanEntity.class)) {
++            addActor(new EndermanEntity(new Vector3(x, y, z), tag));
++          } else if ((id.equals("minecraft:zombie") || id.equals("Zombie")) && entityLoadingPreferences.shouldLoadClass(ZombieEntity.class)) {
++            addActor(new ZombieEntity(new Vector3(x, y, z), tag));
++          } else if ((id.equals("minecraft:villager") || id.equals("Villager")) && entityLoadingPreferences.shouldLoadClass(VillagerEntity.class)) {
++            addActor(new VillagerEntity(new Vector3(x, y, z), tag));
+           }
+         }
+       }
+diff --git a/chunky/src/java/se/llbit/chunky/resources/Texture.java b/chunky/src/java/se/llbit/chunky/resources/Texture.java
+index e70de5e8..cf6b262c 100644
+--- a/chunky/src/java/se/llbit/chunky/resources/Texture.java
++++ b/chunky/src/java/se/llbit/chunky/resources/Texture.java
+@@ -498,6 +498,26 @@ public class Texture {
+   public static final EntityTexture sheepFur = new EntityTexture();
+   @TexturePath("assets/minecraft/textures/entity/sheep/sheep_wool_undercoat")
+   public static final EntityTexture sheepUndercoat = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/enderman/enderman")
++  public static final EntityTexture enderman = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/enderman/enderman_eyes")
++  public static final EntityTexture endermanEyes = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/villager")
++  public static final EntityTexture villager = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/desert")
++  public static final EntityTexture villagerDesert = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/jungle")
++  public static final EntityTexture villagerJungle = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/plains")
++  public static final EntityTexture villagerPlains = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/savanna")
++  public static final EntityTexture villagerSavanna = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/snow")
++  public static final EntityTexture villagerSnow = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/swamp")
++  public static final EntityTexture villagerSwamp = new EntityTexture();
++  @TexturePath("assets/minecraft/textures/entity/villager/type/taiga")
++  public static final EntityTexture villagerTaiga = new EntityTexture();
+   @TexturePath(value = "assets/minecraft/textures/entity/cow/cow_temperate", alternatives = {"assets/minecraft/textures/entity/cow/temperate_cow"})
+   public static final EntityTexture cow = new EntityTexture();
+   @TexturePath(value = "assets/minecraft/textures/entity/cow/cow_cold", alternatives = {"assets/minecraft/textures/entity/cow/cold_cow"})

@@ -1,0 +1,6 @@
+chunky-src/
+cache/
+out/
+testsrv/
+timelapse-*/
+__pycache__/

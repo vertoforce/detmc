@@ -1,0 +1,8 @@
+{
+  "x": 96, "y": 178, "z": -16,
+  "target": {"x": 96, "y": 137, "z": -31},
+  "fov": 60,
+  "width": 1280, "height": 720,
+  "samples": 32,
+  "chunk_radius": 7
+}

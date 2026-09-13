@@ -1,0 +1,13 @@
+# PHASE 1 STUB - not built yet. Kept so the module layout is complete.
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "detmc"
+version = "0.1.0"
+displayName = "detmc"
+description = "Deterministic RNG for headless Minecraft servers."
+
+[[mixins]]
+config = "detmc.mixins.json"

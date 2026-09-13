@@ -1,0 +1,6 @@
+// PHASE 1 STUB. Intentionally not wired to ModDevGradle yet.
+//
+// When phase 2/3 turns this on:
+//   // No plugins, no tasks: this module exists only to reserve the layout.
+tasks.withType(JavaCompile).configureEach { enabled = false }
+tasks.matching { it.name == 'jar' }.configureEach { enabled = false }

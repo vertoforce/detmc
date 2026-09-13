@@ -1,0 +1,9 @@
+# Minimal scenario fragment showing the block prefilter.py reads.
+# Only `world.requirements` (and an optional version key) matter here.
+mc_version: "26.2"
+world:
+  requirements:
+    spawn_biome: [minecraft:plains, minecraft:sunflower_plains]
+    spawn_biome_radius: 32
+    structures:
+      - {id: minecraft:village_plains, within: 200}

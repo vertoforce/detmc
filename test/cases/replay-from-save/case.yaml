@@ -1,0 +1,15 @@
+name: replay-from-save
+summary: >
+  Replay from a save. Each server runs to 6,000 ticks, flushes, stops, restarts from
+  its own save and carries on to 12,000. The two resumed halves must agree, which is
+  the claim that RNG state survives a restart.
+kind: resume-pair
+expect: resume-match
+ticks: 12000
+resume_at: 6000
+checkpoints: [6000, 12000]
+world:
+  spawn_mobs: true
+jar:
+  seed: 1
+timeout_s: 7200

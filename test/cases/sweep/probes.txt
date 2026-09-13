@@ -1,0 +1,41 @@
+# probes.txt -- per-path evidence, run at every checkpoint by sweep-pair.sh.
+# Format: <path>\t<rcon command>.  Each line becomes its own section in the
+# transcript, so the section diff names the phase-8 path that moved rather than
+# just saying "the world differs".  /function is never used as a probe: over rcon it
+# returns only "Executed N commands", not the values.
+# Probes run in order and a few of them mutate the world on purpose (the structure
+# placements); that mutation is identical in A and B by construction, which is the
+# whole point of the oracle in 05-sameGametimeTwice.
+counters-picks	scoreboard players get #picks sweep
+counters-spreads	scoreboard players get #spreads sweep
+counters-damage	scoreboard players get #dmg sweep
+counters-places	scoreboard players get #places sweep
+counters-furnaces	scoreboard players get #furnaces sweep
+counters-crafts	scoreboard players get #crafts sweep
+01-InsideBrownianWalk-villagerPos	execute as @e[type=villager] run data get entity @s Pos
+01-InsideBrownianWalk-memories	execute as @e[type=villager] run data get entity @s Brain.memories
+02-EntitySelectorParser-picks	execute as @e[tag=sel] run scoreboard players get @s picked
+02-EntitySelectorParser-pos	execute as @e[tag=sel] run data get entity @s Pos
+03-PlayerSpawnFinder-playerPos	execute as @a run data get entity @s Pos
+04-SpreadPlayersCommand-pos	execute as @e[tag=spread] run data get entity @s Pos
+05-StructureBlockEntity-blocksPlacedTemplate	scoreboard players get #placed sweep
+05-StructureBlockEntity-blocksPlacedStructBlock	scoreboard players get #placed2 sweep
+05-StructureBlockEntity-clearA	fill 80 -60 20 94 -46 34 minecraft:air
+05-StructureBlockEntity-clearB	fill 80 -60 40 94 -46 54 minecraft:air
+05-StructureBlockEntity-placeA	place template minecraft:village/plains/houses/plains_small_house_1 80 -60 20 none none 0.5 0
+05-StructureBlockEntity-placeB	place template minecraft:village/plains/houses/plains_small_house_1 80 -60 40 none none 0.5 0
+05-StructureBlockEntity-sameGametimeTwice	execute if blocks 80 -60 20 94 -46 34 80 -60 40 all
+07-Stopwatches-setup	stopwatch query sw_setup
+07-Stopwatches-mid	stopwatch query sw_mid
+08-ItemEnchantments-healthAfterDamage	scoreboard players get #health sweep
+09-AbstractFurnace-orbCount	scoreboard players get #orbs sweep
+09-AbstractFurnace-orbValues	execute as @e[type=experience_orb] run data get entity @s Value
+10-PoiSection-profession	execute as @e[type=villager] run data get entity @s VillagerData
+10-PoiSection-jobsite	execute as @e[type=villager] run data get entity @s Brain.memories."minecraft:job_site".value.pos
+11-StackedContents-bookCount	execute if entity @e[type=item,nbt={Item:{id:"minecraft:book"}}]
+11-StackedContents-allItems	execute if entity @e[type=item]
+12-Scoreboard-holders	scoreboard players list
+12-Scoreboard-alpha	scoreboard players get alpha sweep2
+12-Scoreboard-delta	scoreboard players get delta sweep2
+13-ServerRecipeBook-known	scoreboard players get #rb sweep
+rng-stream	detmc rng

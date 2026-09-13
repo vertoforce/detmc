@@ -1,0 +1,338 @@
+# An enderman walls a villager into its own house, on a map nobody built.
+#
+# THE EVENT.  A real plains village, natural terrain, natural endermen from natural
+# spawning.  At setup the runner scans the village for door blocks and beds, marks
+# them, and marks the cells each door opens into THAT WERE AIR AT THAT MOMENT.  A
+# hit is one of those cells later holding a block that blocks movement and that only
+# an enderman can have put there, while a villager standing next to a bed is within
+# 5 blocks of it: a villager indoors with its doorway filled in.
+#
+# WHY IT IS REACHABLE.  montecarlo puts "a villager is inside a 1x1 cell as its
+# fourth wall goes up" at 3e-6 per enderman-year (montecarlo/README.md "Villager":
+# 0 of 136 trap-cell closures in 10,000 enderman-years, ~1/4096 of the 0.0122
+# trap-cell rate), i.e. ~17,000 years with 20 endermen.  A doorway is a different
+# shape of problem, and a much smaller one:
+#   * it needs a block in ONE of a few dozen named cells, not four around one cell;
+#   * a villager puts itself on the inside of a door every night by itself, because
+#     the day/night clock is running and its bed is in there;
+#   * a single block is enough.  `Villager` steps up one block, so a doorway cell
+#     filled at the door's own level already stops it using that door; the second
+#     detector below is the strict "boxed in on four sides" version.
+# The rate is still set by how many endermen are alive near the village, which is a
+# spawn-cap outcome rather than a scenario parameter -- so it is MEASURED (see
+# runner/README.md, "How many endermen a real village actually gets").
+#
+# WHY THERE IS A FAKE PLAYER, AND WHY IT IS CREATIVE.  Natural spawning only runs in
+# chunks with a non-spectator player within 128 blocks
+# (ChunkMap.playerIsCloseEnoughForSpawning, ChunkMap.java:1014; a forceload alone is
+# NOT enough -- that is the one thing forceload-only gives you for FREE, entity
+# ticking, and it is why the built-arena scenarios need no player).  Creative,
+# because GameType.updatePlayerAbilities:63-66 sets `abilities.invulnerable` and
+# Player.canBeSeenAsEnemy:724 is `!getAbilities().invulnerable && super...`, so no
+# mob ever targets it: the village does not get a creeper hole in it and the
+# villagers are not dragged into a fight this scenario is not about.  Both halves
+# are verified on a live server; see the README.
+name: enderman_villager_trap
+
+world:
+  # Resolved by prefilter.py.  Candidate seeds are
+  # random.Random(0x6d65742d64657403).getrandbits(64) folded to a Java long, so the
+  # list is reproducible and a seed looks like a seed rather than like a placeholder
+  # somebody forgot to change.  `world.seeds` below is the accepted one, recorded so
+  # a rerun does not have to search again.
+  # ACCEPTED: candidate 2 of the reproducible list, a village_plains at
+  # (240, -320) -- 400 blocks from world spawn (0,0).  Cubiomes evaluated it with
+  # 1.21 worldgen, not 26.2, so it is a candidate until a real server confirms it;
+  # the confirmation is in the README.
+  seeds: [3795784043239602249]
+  prefilter:
+    count: 1
+    start_seed: 1
+    max_seeds: 400
+  requirements:
+    # No spawn-biome requirement, on purpose.  Everything this scenario does happens
+    # at the VILLAGE -- the anchor, the forceload, the fake player and the survey --
+    # and a `village_plains` is in a plains-family biome by definition, so
+    # constraining the WORLD SPAWN biome as well only makes the search 8x longer for
+    # nothing.  Measured: with `spawn_biome` set to six biomes and `within: 256`,
+    # 0 of 60 random candidates were accepted; with neither, the first candidate was.
+    spawn_biome: []
+    spawn_biome_radius: 0
+    structures:
+      # 512, not 256: the distance from world spawn to the village is irrelevant
+      # here (nothing runs at spawn), and every block of slack multiplies the
+      # acceptance rate.
+      - {id: minecraft:village_plains, within: 512}
+
+server:
+  difficulty: easy                  # easy zombies cannot break doors and cannot
+                                    # zombify a villager, so a villager that is
+                                    # indoors at night stays alive
+  simulation_distance: 4            # see README "Sizing a natural-map run"
+  view_distance: 4
+  spawn_monsters: true
+  memory: 1G
+
+anchor:
+  from: structure
+  structure: minecraft:village_plains
+  offset: [0, 0, 0]
+  y: surface
+  # The surface scan is one rcon round trip per y from `surface_ymax` down, so this
+  # bounds its cost: a plains village is nowhere near y=140, and 140-68 = ~72 probes
+  # is ~12 s instead of the ~130 a default ymax of 200 would cost.
+  surface_ymax: 140
+
+setup:
+  gamerules:
+    mob_griefing: true              # REQUIRED: the enderman take/place goals are
+                                    # gated on it
+    spawn_mobs: true                # the endermen are NATURAL; this is the scenario
+    advance_time: true              # endermen only spawn at night and villagers only
+                                    # go home at night, so the clock has to run
+    advance_weather: false          # rain damages an unroofed enderman (~20 s to
+                                    # kill, montecarlo/README.md) and makes it
+                                    # teleport; a permanent clear sky is the only way
+                                    # a natural enderman lives long enough to build
+    random_tick_speed: 0            # no crop growth, no grass spread, no fire
+                                    # spread: fewer ticks AND one less way for a
+                                    # block to change without a mob touching it
+    spawn_patrols: false            # pillagers would fight the villagers
+    spawn_wandering_traders: false
+    spawn_phantoms: false           # 26.2 name for doInsomnia; the fake player never
+                                    # sleeps, so this would spawn phantoms forever
+    # REQUIRED by setup.survey, and it was found the hard way.  The survey's first
+    # pass is ~9,800 offsets evaluated per villager, so with 10 villagers it is
+    # ~98,000 command executions in one function, and 26.2's default
+    # max_command_sequence_length is 65,536.  The server truncates silently as far as
+    # the runner is concerned -- `function detmc:survey` still answers "Running
+    # function detmc:survey" -- and only the console says why:
+    #   [Server thread/INFO]: Command execution stopped due to limit
+    #                         (executed 65536 commands)
+    # The visible symptom was 15 beds, 0 doors and 0 doorway cells: the pass that ran
+    # first completed and every later pass was cut off.  The limit protects a server
+    # from a runaway chain; this chain is one deliberate scan, run once, frozen.
+    max_command_sequence_length: 1000000
+  time: {set: 13000}                # just after dusk: the first night starts within
+                                    # a few hundred ticks, so endermen spawn early
+  weather: {policy: clear, duration: 1000000}
+  forceload:
+    # Entity ticking for the village and a margin.  This is NOT what makes spawning
+    # work (the fake player is), it is what keeps the village loaded and its
+    # entities ticking regardless of where the spawn logic is looking.
+    # +-64, not +-48, and that is measured: the ten villagers of this village span
+    # x 208..275, z -354..-257 while `locate structure` reports the village at
+    # 240,-320, so a +-48 box (z -368..-272) leaves the northern 15 blocks of the
+    # village outside it.  At simulation-distance 4 the fake player entity-ticks
+    # ~81 chunks anyway, so forceloading 81 makes the ticked area explicit rather
+    # than incidental.
+    - from: ["${anchor_x-64}", "${anchor_z-64}"]
+      to: ["${anchor_x+64}", "${anchor_z+64}"]
+  fake_players:
+    # One per village, standing in it.  `gamemode` defaults to creative in run.py;
+    # it is written out here because it is load-bearing, not cosmetic.
+    - name: villagewatch
+      at: ["${anchor_x}", "${anchor_y+1}", "${anchor_z}"]
+      facing: [0, 0]
+      gamemode: creative
+  prep: []                          # nothing is built; this is the point
+  summons: []                       # nothing is summoned; the endermen are natural
+  tag_entities:
+    # Tag the village's own villagers once, so a count is a count of the SAME
+    # villagers.  Measured on a live 26.2 server (README): a tag distinguishes a
+    # dead villager from one that walked out of range and `distance=` does not.
+    - selector: "@e[type=minecraft:villager,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=64,dz=128]"
+      tag: village_villager
+
+  # The survey: find the geometry, take the baseline, leave both in the world.
+  #
+  # Why a datapack and not rcon: one `execute if block` over rcon is ~0.17 s measured
+  # (README, the 625-column scan at 107 s), so a 19,000-cell volume would take an
+  # hour, while the same 19,000 conditions inside a function cost ~0.2 s.  A matching
+  # command summons a `minecraft:marker`, so the scan runs in the server and its
+  # result is read back as entity positions.  The markers are saved with the world
+  # (the merged jar writes entity region files again, docs/STATUS.md defect 3), so a
+  # branch node inherits the baseline instead of recomputing it -- which matters,
+  # because `Replica.resume` cannot reload a datapack.
+  survey:
+    # Anchored on the VILLAGERS, not on a box.  Measured on mc-run-trapverify-r0:
+    # a +-32 box around the `locate structure` reference position of this village
+    # held 3 doors and ZERO beds, while the ten villagers spanned x 208..275,
+    # z -354..-257 and one named its home bed at 238,70,-354 -- outside the box.  A
+    # village's extent is not its reference position.  The mobs know where they
+    # live, so the chain starts from them:
+    #
+    #   villagers --+-16 x/z, -4..+4 y--> every bed        (detmc_bed)
+    #   beds      --+-8  x/z, -3..+3 y--> every lower door (detmc_door)
+    #   doors     --the 4 horizontal neighbours, 2 levels--> the AIR ones (detmc_dcell)
+    #
+    # It is also ~25x cheaper than the box: ~12,000 conditions instead of the
+    # ~332,000 a box wide enough to hold this village would need, and it cannot
+    # miss a house just because the village sprawled the other way.  Every pass
+    # de-duplicates (several villagers share a house, so the same bed and door would
+    # otherwise be marked once per villager and every count would multiply).
+    marks: []
+    derive:
+      - tag: detmc_bed
+        from_selector: "@e[type=minecraft:villager,tag=village_villager]"
+        radius: 16
+        y_levels: [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+        if_block: "#minecraft:beds"
+      - tag: detmc_door
+        from: detmc_bed
+        radius: 8
+        y_levels: [-3, -2, -1, 0, 1, 2, 3]
+        if_block: "#minecraft:doors"
+        unless_below: "#minecraft:doors"   # lower half only: the upper half's
+                                           # neighbours are not walked through
+      # THE BASELINE.  The four horizontal neighbours of each door, at the door's own
+      # level and one above, that are AIR right now.  Two of the four are the door
+      # frame and drop out for free.
+      - tag: detmc_dcell
+        from: detmc_door
+        offsets: [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+                  [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1]]
+        if_block: minecraft:air
+
+detector:
+  kind: multi
+  check_every_ticks: 20             # 1200x finer than montecarlo's once-per-day scan
+  interval_ticks: 24000
+  stop_on_hit: true
+  detectors:
+    # ---- the primary hit: a doorway cell that was air is now blocked -------
+    - name: doorway_blocked
+      kind: marker_relative
+      marker_tag: detmc_dcell
+      offsets: [[0, 0, 0]]          # the marked cell itself
+      include_self: true
+      # `#minecraft:enderman_holdable` is the only block set a mob can PLACE in a
+      # world with no players (26.2 tag, read out of the server jar: dirt, mud, moss,
+      # grass blocks, sand, red_sand, gravel, clay, the two mushrooms, tnt, cactus,
+      # pumpkins, melon, the nether fungi and small flowers).  `unless
+      # #minecraft:replaceable` throws out the members that do not block a villager
+      # -- small flowers, and snow layers -- so a flower blown into a doorway is not
+      # read as a wall.
+      if_block: "#minecraft:enderman_holdable"
+      # ... and it has to actually STOP a villager.  `#minecraft:replaceable` is not
+      # enough: checked against the 26.2 tag JSON, `replaceable` is air, water, lava,
+      # short_grass, fern, bushes, dry grass, seagrass, fire, snow, vine,
+      # glow_lichen, resin_clump, light, tall_grass, large_fern, structure_void, the
+      # air variants, bubble_column, the nether roots, leaf_litter and hanging_roots
+      # -- and NOT small flowers, mushrooms or fungi, every one of which IS holdable.
+      # An enderman drops a dandelion in a doorway and a villager walks through it,
+      # so the non-colliding members of the holdable set are excluded by name.
+      unless_block: ["#minecraft:replaceable", "#minecraft:small_flowers",
+                     minecraft:brown_mushroom, minecraft:red_mushroom,
+                     minecraft:crimson_fungus, minecraft:warped_fungus,
+                     minecraft:cactus_flower]
+      then:
+        # ... and a villager that is standing next to a bed is within 5 blocks of the
+        # cell, which is "a villager is in the house behind this door".  `as ... at
+        # @s` re-roots the position on the villager, so the bed test is about the
+        # VILLAGER's neighbourhood and not the doorway's.
+        - "as @e[type=minecraft:villager,tag=village_villager,distance=..5] at @s"
+        - "if entity @e[type=minecraft:marker,tag=detmc_bed,distance=..3]"
+    # ---- the secondary hit: boxed in on all four sides --------------------
+    # montecarlo's trap cell (sim.py:194-213 `_check_trap`, "a 1x1 cell whose 4
+    # horizontal neighbours just became placed blocks", and sim.py:290-297 `trap1`,
+    # the vectorised form whose rate the table reports) closes a cell with a ONE-high
+    # wall, which montecarlo/README.md itself flags as jumpable.  This asks for foot
+    # AND head level on all four sides, and for at least three of the four foot-level
+    # walls to be holdable -- village walls are planks, cobblestone and logs, none of
+    # which is holdable, so three holdable walls is the "a mob built this" test.  It
+    # is checked against the actual world at setup, not argued: run.py runs every
+    # check once with `#armed` 0 and logs anything that already fires.
+    - name: villager_boxed
+      kind: entity_enclosed
+      selector: "@e[type=minecraft:villager,tag=village_villager]"
+      levels: [0, 1]
+      air_block: "#minecraft:replaceable"   # "solid" = not air, water, grass, flower
+      material: "#minecraft:enderman_holdable"
+      material_levels: [0]
+      min_material: 3
+
+score:
+  metrics:
+    # 1. doorway cells that are blocked NOW.  Exact baseline: every detmc_dcell was
+    #    air when it was marked, so `dcell_sum` counts changes and nothing else.
+    - name: dcell
+      kind: marker_neighbourhood_count
+      marker_tag: detmc_dcell
+      offsets: [[0, 0, 0]]
+      include_self: true
+      if_block: "#minecraft:enderman_holdable"
+      unless_block: ["#minecraft:replaceable", "#minecraft:small_flowers",
+                     minecraft:brown_mushroom, minecraft:red_mushroom,
+                     minecraft:crimson_fungus, minecraft:warped_fungus,
+                     minecraft:cactus_flower]
+    # 2. the same test within 3 blocks of a door, in three levels: "how much material
+    #    has a mob dragged towards a doorway".  This one has a non-zero baseline (a
+    #    village has dirt and gravel in it), which is measured at setup and recorded;
+    #    it is the same constant for every node of one world, so it ranks correctly
+    #    even though it does not read as an absolute count.
+    - name: dnear
+      kind: marker_neighbourhood_count
+      marker_tag: detmc_door
+      radius: 3
+      y_levels: [0, 1, 2]
+      if_block: "#minecraft:enderman_holdable"
+      unless_block: ["#minecraft:replaceable", "#minecraft:small_flowers",
+                     minecraft:brown_mushroom, minecraft:red_mushroom,
+                     minecraft:crimson_fungus, minecraft:warped_fungus,
+                     minecraft:cactus_flower]
+    # 3. enclosure progress around the villagers themselves
+    - name: vill
+      kind: entity_enclosure_profile
+      selector: "@e[type=minecraft:villager,tag=village_villager]"
+      levels: [0, 1]
+      air_block: "#minecraft:replaceable"
+      material: "#minecraft:enderman_holdable"
+      material_levels: [0]
+      near_sides: 3
+    # 4. the population signals.  On a natural map these ARE the rate: no endermen
+    #    near the village means no event however long the run is, and a falling
+    #    villager count means the village is dying rather than being walled in.
+    - name: endermen
+      kind: entity_count
+      selector: "@e[type=minecraft:enderman,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=64,dz=128]"
+    - name: villagers
+      kind: entity_count
+      selector: "@e[type=minecraft:villager,tag=village_villager]"
+  # Lexicographic, in the order the coordinator asked for, and the weights make it
+  # strictly so rather than approximately so.  Ranges on a plains village:
+  # dcell_sum 0..(number of doorway cells, tens), vill_sides 0..4,
+  # dnear_max 0..146 (the offset count), dnear_sum 0..(146 x doors, low thousands),
+  # endermen 0..70 (the MONSTER cap).  Each weight exceeds the largest possible sum
+  # of everything below it: 70 < 100; 4000x100+70 < 1e6; 146x1e6+400070 < 1e9;
+  # 4x1e9+1.464e8 < 1e11.
+  rank: "100000000000*dcell_sum + 1000000000*vill_sides + 1000000*dnear_max + 100*dnear_sum + endermen"
+
+resume:
+  # Nothing to re-summon and no material to restore: the mobs, the villagers and the
+  # survey markers are all saved with the world now, so a branch generation inherits
+  # the whole state rather than rebuilding it.  That is a change from the built-arena
+  # hunts, where `entities/*.mca` was 0 bytes and mob state could not cross a
+  # generation at all -- and it is verified per run (README, "Entities survive a
+  # generation on the merged jar").
+  resummon: true
+  restore_material: null
+
+run:
+  ticks: 8760000                    # one in-game year per lineage
+  segment_ticks: 24000
+  replicas: 8
+  # `-Ddetmc.seed` per replica, derived not counted:
+  # splitmix64(0x6d65742d64657403 ^ world_seed ^ (i+1)*0x9E3779B97F4A7C15) & (2^62-1)
+  # (run.derive_rng_seeds).  Filled in for the accepted world seed below so branch.py,
+  # which reads this key directly, uses them too.
+  rng_seeds: [1451989592335860511, 1289328537281507103, 1920362754030561443,
+              1948123813014443575, 697335652302886549, 1253803336939722918,
+              1090469975461805774, 469564610418456603]
+  reseed: []
+
+snapshots:
+  enabled: false
+  every_ticks: 720000
+  camera: ../camera/cams/oblique.json
+  render: false

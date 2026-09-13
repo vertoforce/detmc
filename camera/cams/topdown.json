@@ -1,0 +1,8 @@
+{
+  "x": 96, "y": 210, "z": -32,
+  "yaw": 0, "pitch": 90,
+  "fov": 50,
+  "width": 1280, "height": 720,
+  "samples": 64,
+  "chunk_radius": 5
+}

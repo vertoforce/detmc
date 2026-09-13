@@ -1,0 +1,231 @@
+# calibration factors (measured/analytic at high density)
+   L                      0.41
+   T                      0.40
+   either_L               0.49
+   either_T               0.47
+   either_ring3           1.30
+   either_smiley          0.72
+   either_smiley_relaxed  0.71
+   either_sq2             0.72
+   ring3                  1.04
+   smiley                 0.52
+   smiley_relaxed         0.62
+   sq2                    0.67
+   trap1                  0.62
+   trap2                  0.39
+
+== open64  years=10000  occupancy=0.0154  places/yr=1016.1  takes/yr=1016.1  trap-closures/yr=0.0136  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                     463       0.0463         [0.0428, 0.05]            -
+pillar4                       3       0.0003   [8.18e-05, 0.000775]            -
+pillar5                       0            0            [0, 0.0003]            -
+sq2                         104       0.0104      [0.00878, 0.0122]      0.00955
+hole_sq2                      0            0            [0, 0.0003]      0.00955
+either_sq2                  107       0.0107      [0.00906, 0.0126]       0.0103
+sq3                           0            0            [0, 0.0003]     2.66e-11
+hole_sq3                      0            0            [0, 0.0003]     2.66e-11
+either_sq3                    0            0            [0, 0.0003]     2.66e-11
+ring3                         0            0            [0, 0.0003]     1.78e-09
+hole_ring3                    0            0            [0, 0.0003]     1.78e-09
+either_ring3                  0            0            [0, 0.0003]     2.22e-09
+smiley                        0            0            [0, 0.0003]     1.16e-07
+hole_smiley                   0            0            [0, 0.0003]     1.16e-07
+either_smiley                 0            0            [0, 0.0003]     1.62e-07
+smiley_relaxed              191       0.0191       [0.0169, 0.0215]       0.0167
+hole_smiley_relaxed           0            0            [0, 0.0003]       0.0167
+either_smiley_relaxed       196       0.0196       [0.0174, 0.0221]       0.0193
+L                             0            0            [0, 0.0003]     0.000184
+hole_L                        0            0            [0, 0.0003]     0.000184
+either_L                      0            0            [0, 0.0003]     0.000223
+T                             0            0            [0, 0.0003]      0.00018
+hole_T                        0            0            [0, 0.0003]      0.00018
+either_T                      0            0            [0, 0.0003]      0.00021
+trap1                       122       0.0122       [0.0104, 0.0142]      0.00855
+trap2                         0            0            [0, 0.0003]     1.89e-06
+pit1                          0            0            [0, 0.0003]            -
+pit_depth2                    0            0            [0, 0.0003]            -
+pit3x3                        0            0            [0, 0.0003]            -
+   stack-height occupancy: 1:0.0152 2:0.000199 3:6.97e-07 4:3.46e-07
+
+== roofed64  years=2000  occupancy=0.0154  places/yr=984.9  takes/yr=984.9  trap-closures/yr=0.01  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                      82        0.041       [0.0338, 0.0493]            -
+pillar4                       1       0.0005    [2.56e-05, 0.00237]            -
+pillar5                       0            0            [0, 0.0015]            -
+sq2                          24        0.012      [0.00827, 0.0169]      0.00927
+hole_sq2                      0            0            [0, 0.0015]      0.00927
+either_sq2                   24        0.012      [0.00827, 0.0169]         0.01
+sq3                           0            0            [0, 0.0015]     2.59e-11
+hole_sq3                      0            0            [0, 0.0015]     2.59e-11
+either_sq3                    0            0            [0, 0.0015]     2.59e-11
+ring3                         0            0            [0, 0.0015]     1.74e-09
+hole_ring3                    0            0            [0, 0.0015]     1.74e-09
+either_ring3                  0            0            [0, 0.0015]     2.16e-09
+smiley                        0            0            [0, 0.0015]     1.13e-07
+hole_smiley                   0            0            [0, 0.0015]     1.13e-07
+either_smiley                 0            0            [0, 0.0015]     1.58e-07
+smiley_relaxed               29       0.0145       [0.0104, 0.0198]       0.0162
+hole_smiley_relaxed           0            0            [0, 0.0015]       0.0162
+either_smiley_relaxed        30        0.015       [0.0108, 0.0203]       0.0187
+L                             1       0.0005    [2.56e-05, 0.00237]     0.000178
+hole_L                        0            0            [0, 0.0015]     0.000178
+either_L                      1       0.0005    [2.56e-05, 0.00237]     0.000217
+T                             0            0            [0, 0.0015]     0.000174
+hole_T                        0            0            [0, 0.0015]     0.000174
+either_T                      0            0            [0, 0.0015]     0.000204
+trap1                        16        0.008      [0.00502, 0.0122]       0.0083
+trap2                         0            0            [0, 0.0015]     1.84e-06
+pit1                          0            0            [0, 0.0015]            -
+pit_depth2                    0            0            [0, 0.0015]            -
+pit3x3                        0            0            [0, 0.0015]            -
+   stack-height occupancy: 1:0.0152 2:0.000193 3:9.73e-07 4:7.36e-08
+
+== open8  years=2000  occupancy=0.0019  places/yr=226.4  takes/yr=226.4  trap-closures/yr=0  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                       0            0            [0, 0.0015]            -
+pillar4                       0            0            [0, 0.0015]            -
+pillar5                       0            0            [0, 0.0015]            -
+sq2                           0            0            [0, 0.0015]     4.27e-06
+hole_sq2                      0            0            [0, 0.0015]     4.27e-06
+either_sq2                    0            0            [0, 0.0015]     4.62e-06
+sq3                           0            0            [0, 0.0015]      3.8e-19
+hole_sq3                      0            0            [0, 0.0015]      3.8e-19
+either_sq3                    0            0            [0, 0.0015]      3.8e-19
+ring3                         0            0            [0, 0.0015]     2.04e-16
+hole_ring3                    0            0            [0, 0.0015]     2.04e-16
+either_ring3                  0            0            [0, 0.0015]     2.54e-16
+smiley                        0            0            [0, 0.0015]     1.31e-13
+hole_smiley                   0            0            [0, 0.0015]     1.31e-13
+either_smiley                 0            0            [0, 0.0015]     1.84e-13
+smiley_relaxed                0            0            [0, 0.0015]     1.02e-06
+hole_smiley_relaxed           0            0            [0, 0.0015]     1.02e-06
+either_smiley_relaxed         0            0            [0, 0.0015]     1.18e-06
+L                             0            0            [0, 0.0015]     1.09e-08
+hole_L                        0            0            [0, 0.0015]     1.09e-08
+either_L                      0            0            [0, 0.0015]     1.32e-08
+T                             0            0            [0, 0.0015]     1.06e-08
+hole_T                        0            0            [0, 0.0015]     1.06e-08
+either_T                      0            0            [0, 0.0015]     1.24e-08
+trap1                         0            0            [0, 0.0015]     3.82e-06
+trap2                         0            0            [0, 0.0015]     1.34e-11
+pit1                          0            0            [0, 0.0015]            -
+pit_depth2                    0            0            [0, 0.0015]            -
+pit3x3                        0            0            [0, 0.0015]            -
+   stack-height occupancy: 1:0.00193 2:2.76e-06
+
+== open512b  years=960  occupancy=0.1139  places/yr=1696.9  takes/yr=1696.9  trap-closures/yr=5.452  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                    5105       5.3177            [5.2, 5.44]            -
+pillar4                     132       0.1375         [0.118, 0.159]            -
+pillar5                      26     0.027083        [0.019, 0.0376]            -
+sq2                        6244       6.5042           [6.37, 6.64]          6.5
+hole_sq2                      0            0           [0, 0.00312]          6.5
+either_sq2                 6756       7.0375            [6.9, 7.18]         7.04
+sq3                           1    0.0010417    [5.34e-05, 0.00494]     0.000407
+hole_sq3                      0            0           [0, 0.00312]     0.000407
+either_sq3                    2    0.0020833     [0.00037, 0.00656]     0.000407
+ring3                         1    0.0010417    [5.34e-05, 0.00494]      0.00335
+hole_ring3                    0            0           [0, 0.00312]      0.00335
+either_ring3                  4    0.0041667     [0.00142, 0.00953]      0.00417
+smiley                        5    0.0052083       [0.00205, 0.011]      0.00521
+hole_smiley                   0            0           [0, 0.00312]      0.00521
+either_smiley                 7    0.0072917      [0.00342, 0.0137]      0.00729
+smiley_relaxed            42267       44.028           [43.7, 44.4]           44
+hole_smiley_relaxed           0            0           [0, 0.00312]           44
+either_smiley_relaxed     48834       50.869           [50.5, 51.2]         50.9
+L                           613      0.63854         [0.597, 0.683]        0.639
+hole_L                        0            0           [0, 0.00312]        0.639
+either_L                    745      0.77604          [0.73, 0.824]        0.776
+T                           600        0.625         [0.584, 0.669]        0.625
+hole_T                        0            0           [0, 0.00312]        0.625
+either_T                    703      0.73229         [0.687, 0.779]        0.732
+trap1                      5594       5.8271            [5.7, 5.96]         5.83
+trap2                        68     0.070833       [0.0573, 0.0867]       0.0708
+pit1                          0            0           [0, 0.00312]            -
+pit_depth2                    0            0           [0, 0.00312]            -
+pit3x3                        0            0           [0, 0.00312]            -
+   stack-height occupancy: 1:0.104 2:0.00935 3:0.000302 4:5.88e-05 5:3.76e-05 6:3.31e-05 7:4.17e-05
+
+== open512  years=1000  occupancy=0.1121  places/yr=1696.5  takes/yr=1696.5  trap-closures/yr=5.199  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                    5047        5.047           [4.93, 5.17]            -
+pillar4                     131        0.131         [0.113, 0.151]            -
+pillar5                      28        0.028       [0.0199, 0.0384]            -
+sq2                        6113        6.113           [5.98, 6.24]          6.2
+hole_sq2                      0            0             [0, 0.003]          6.2
+either_sq2                 6631        6.631            [6.5, 6.77]          6.7
+sq3                           0            0             [0, 0.003]     0.000358
+hole_sq3                      0            0             [0, 0.003]     0.000358
+either_sq3                    0            0             [0, 0.003]     0.000358
+ring3                         3        0.003    [0.000818, 0.00775]        0.003
+hole_ring3                    0            0             [0, 0.003]        0.003
+either_ring3                  6        0.006      [0.00261, 0.0118]      0.00373
+smiley                        3        0.003    [0.000818, 0.00775]       0.0049
+hole_smiley                   0            0             [0, 0.003]       0.0049
+either_smiley                 3        0.003    [0.000818, 0.00775]      0.00686
+smiley_relaxed            42032       42.032           [41.7, 42.4]         41.8
+hole_smiley_relaxed           0            0             [0, 0.003]         41.8
+either_smiley_relaxed     48744       48.744           [48.4, 49.1]         48.3
+L                           525        0.525         [0.488, 0.564]        0.603
+hole_L                        0            0             [0, 0.003]        0.603
+either_L                    667        0.667         [0.625, 0.711]        0.733
+T                           639        0.639         [0.598, 0.682]         0.59
+hole_T                        0            0             [0, 0.003]         0.59
+either_T                    740         0.74         [0.696, 0.786]        0.692
+trap1                      5515        5.515           [5.39, 5.64]         5.55
+trap2                         0            0             [0, 0.003]       0.0654
+pit1                          0            0             [0, 0.003]            -
+pit_depth2                    0            0             [0, 0.003]            -
+pit3x3                        0            0             [0, 0.003]            -
+   stack-height occupancy: 1:0.102 2:0.00902 3:0.000283 4:5.85e-05 5:6.31e-05 6:5.12e-05 7:4.76e-05
+
+== flat  years=100  occupancy=0.0000  places/yr=0.0  takes/yr=0.0  trap-closures/yr=0  villager-in-cell=0  deep_pit=0  min_h=1
+pattern                       n      rate/ey                 90% CI     analytic
+pillar3                       0            0              [0, 0.03]            -
+pillar4                       0            0              [0, 0.03]            -
+pillar5                       0            0              [0, 0.03]            -
+sq2                           0            0              [0, 0.03]            0
+hole_sq2                      0            0              [0, 0.03]            0
+either_sq2                    0            0              [0, 0.03]            0
+sq3                           0            0              [0, 0.03]            0
+hole_sq3                      0            0              [0, 0.03]            0
+either_sq3                    0            0              [0, 0.03]            0
+ring3                         0            0              [0, 0.03]            0
+hole_ring3                    0            0              [0, 0.03]            0
+either_ring3                  0            0              [0, 0.03]            0
+smiley                        0            0              [0, 0.03]            0
+hole_smiley                   0            0              [0, 0.03]            0
+either_smiley                 0            0              [0, 0.03]            0
+smiley_relaxed                0            0              [0, 0.03]            0
+hole_smiley_relaxed           0            0              [0, 0.03]            0
+either_smiley_relaxed         0            0              [0, 0.03]            0
+L                             0            0              [0, 0.03]            0
+hole_L                        0            0              [0, 0.03]            0
+either_L                      0            0              [0, 0.03]            0
+T                             0            0              [0, 0.03]            0
+hole_T                        0            0              [0, 0.03]            0
+either_T                      0            0              [0, 0.03]            0
+trap1                         0            0              [0, 0.03]            0
+trap2                         0            0              [0, 0.03]            0
+pit1                          0            0              [0, 0.03]            -
+pit_depth2                    0            0              [0, 0.03]            -
+pit3x3                        0            0              [0, 0.03]            -
+   stack-height occupancy: 
+
+# open64: in-game years to first occurrence, and wall-clock days at 10 in-game years/day
+pattern                   rate/ey      y@0.1        y@1       y@20      d@0.1        d@1       d@20
+pillar3                    0.0463        216       21.6       1.08       21.6       2.16      0.108
+pillar4                    0.0003  3.333e+04       3333      166.7       3333      333.3      16.67
+pillar5                         0      never      never      never          -          -          -
+sq2                        0.0104      961.5      96.15      4.808      96.15      9.615     0.4808
+sq3                     2.664e-11  3.753e+11  3.753e+10  1.877e+09  3.753e+10  3.753e+09  1.877e+08
+ring3                   1.784e-09  5.604e+09  5.604e+08  2.802e+07  5.604e+08  5.604e+07  2.802e+06
+smiley                  1.158e-07  8.634e+07  8.634e+06  4.317e+05  8.634e+06  8.634e+05  4.317e+04
+smiley_relaxed             0.0191      523.6      52.36      2.618      52.36      5.236     0.2618
+L                       0.0001835  5.448e+04       5448      272.4       5448      544.8      27.24
+T                       0.0001797  5.566e+04       5566      278.3       5566      556.6      27.83
+trap1                      0.0122      819.7      81.97      4.098      81.97      8.197     0.4098
+trap2                    1.89e-06  5.291e+06  5.291e+05  2.646e+04  5.291e+05  5.291e+04       2646
+pit1                            0      never      never      never          -          -          -
+pit_depth2                      0      never      never      never          -          -          -
+pit3x3                          0      never      never      never          -          -          -

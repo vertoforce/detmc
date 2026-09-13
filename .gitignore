@@ -1,0 +1,52 @@
+# Build outputs
+build/
+*/build/
+.gradle/
+# Cached Gradle distribution + dependency cache (mounted into the build container)
+.gradle-home/
+# Minecraft server jar + bundled libraries, fetched by ./fetch-deps.sh
+libs/
+# Test harness scratch
+test/dataA/
+test/dataB/
+test/dataR1/
+test/dataR2/
+test/dataR3/
+test/mods/*.jar
+test/result-*.txt
+test/reseed-R*.txt
+test/reseed-*.log
+
+# rcon password for the test harness
+test/.env
+
+# phase 2 run artifacts
+test/tick0-*.txt
+test/trace-*.txt
+test/seeds-*.txt
+test/tick0-run.log
+
+# phase 4 probe / long-run artifacts
+test/dg-*.txt
+test/io-*.txt
+test/sl-*.txt
+test/*-run.log
+test/long-*.log
+test/long.done
+test/long-progress.txt
+test/probe.done
+test/verdict-*.txt
+test/*-wait.done
+
+# scenario runner: venv, per-run worlds/logs/compose, prefilter scratch
+runner/.venv/
+runner/runs/
+runner/prefilter/verify/data*/
+runner/prefilter/verify/.env
+runner/**/*.pyc
+runner/__pycache__/
+test/phase6-barrier-*/io-*.txt
+
+# rcon passwords: copy the .env.example files; never commit the result
+.env
+!.env.example

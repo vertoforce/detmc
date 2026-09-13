@@ -1,0 +1,101 @@
+# Zombie siege on a plains village.
+#
+# VillageSiege rolls once per night (Timelines.ROLL_VILLAGE_SIEGE, 1/10 at day-time
+# 18000) and spawns 20 zombies just outside the village; it needs a player within
+# 128 blocks, so a Carpet fake player stands in the village. Difficulty must be
+# normal or hard: easy zombies neither break doors nor zombify villagers.
+#
+# Detector: the villager count around the village. A siege kill and a
+# normal-difficulty zombification both drop it below the count measured at setup.
+name: zombie_siege
+
+world:
+  seeds: []                       # empty -> prefilter.py resolves one
+  prefilter:
+    count: 1
+    start_seed: 1
+    max_seeds: 200000
+  requirements:
+    spawn_biome: [minecraft:plains, minecraft:sunflower_plains, minecraft:meadow]
+    spawn_biome_radius: 32
+    structures:
+      - {id: minecraft:village_plains, within: 200}
+
+server:
+  difficulty: normal
+  simulation_distance: 4          # 81 spawning chunks around the fake player
+  view_distance: 4
+  spawn_monsters: true
+  memory: 4G
+
+anchor:
+  from: structure                 # village position, from the prefilter or /locate
+  structure: minecraft:village_plains
+  offset: [0, 0, 0]
+  y: surface
+
+setup:
+  # 26.2 renamed every gamerule to snake_case (verified in the 26.2 server jar's
+  # assets/minecraft/lang/deprecated.json: doDaylightCycle -> advance_time,
+  # doMobSpawning -> spawn_mobs, mobGriefing -> mob_griefing, ...).
+  gamerules:
+    advance_time: true            # the siege roll is on the day-time clock
+    spawn_mobs: true
+    mob_griefing: true            # siege zombies break doors
+    advance_weather: false        # a siege is cancelled while it rains
+    random_tick_speed: 3
+    spawn_patrols: false
+    spawn_wandering_traders: false
+  time: {set: 17000}              # ~1000 ticks before the 18000 roll
+  weather: {policy: clear, duration: 1000000}
+  forceload:
+    - from: ["${anchor_x-64}", "${anchor_z-64}"]
+      to: ["${anchor_x+64}", "${anchor_z+64}"]
+  fake_players:
+    - name: siegebot
+      at: ["${anchor_x}", "${anchor_y+1}", "${anchor_z}"]
+      facing: [0, 0]
+  prep: []
+  summons: []
+  # Tag the village's villagers once, at setup, and count the TAG afterwards.
+  # Counting `distance=..80` cannot tell a dead villager from one that wandered 81
+  # blocks away, and a siege scatters them, so the distance selector reports the
+  # event being searched for whether or not it happened.  Measured on a live 26.2
+  # server: 5 tagged villagers, one teleported 84 blocks out, still inside the
+  # forceload -> tag count 5 (right), distance count 4 (false alarm); then one
+  # killed -> tag count 4.
+  #
+  # The tag is not magic: `@e` only sees LOADED chunks, so a villager that leaves
+  # the forceloaded area still reads as missing (measured: teleported to z=200,
+  # outside the forceload, and the tag count dropped too).  The forceload below is
+  # +-64 blocks, comfortably past where a villager with a bed will wander, which is
+  # what makes the tag count meaningful here.
+  tag_entities:
+    - selector: "@e[type=minecraft:villager,x=${anchor_x},y=${anchor_y},z=${anchor_z},distance=..80]"
+      tag: siege_villager
+
+detector:
+  kind: entity_count
+  name: villagers
+  # no distance: a tagged villager counts wherever it has walked to inside the
+  # loaded area.  A normal-difficulty zombification also drops this, because the
+  # zombie villager is a different entity type and does not carry the tag.
+  selector: "@e[type=minecraft:villager,tag=siege_villager]"
+  op: "<"
+  threshold: baseline             # hit when the count drops below the setup count
+  interval_ticks: 500
+  stop_on_hit: true
+
+run:
+  ticks: 24000                    # one in-game day = one siege roll per replica
+  segment_ticks: 1000             # frozen barrier every N ticks (README: long
+                                  # uninterrupted segments still drift)
+  replicas: 2
+  rng_seeds: [1, 2]
+  reseed: []                      # TODO: needs a `detmc reseed` command; none exists
+
+snapshots:
+  enabled: false
+  every_ticks: 6000
+  camera: ../camera/cams/oblique.json
+  render: false

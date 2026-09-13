@@ -1,0 +1,60 @@
+# Case: sweep -- the thirteen phase-8 fixes, actually walked.
+#
+# Every fix in the phase-8 sweep (STATUS, "2026-09-12 phase 8") is gated on
+# -Ddetmc.syncRandom (DetExecutors.PROP_SYNC_RANDOM, default on).  None of them is on
+# the path of the compose-det.yml world, so this case builds one that does walk them.
+#
+# Self-driven (test/cases/README.md, "Self-driven cases"): the generic runner cannot
+# build this world.  It needs a flat level type, a second mod jar (Carpet, for the fake
+# player) and a per-tick function tag, and none of those three is in the schema.
+# Everything the schema does define is honoured; `self:` holds the rest.
+name: sweep
+summary: >
+  The thirteen phase-8 -Ddetmc.syncRandom fixes, actually walked: villagers indoors
+  with beds and workstations, @e[sort=random], /spreadplayers, structure placement at
+  integrity 0.5, /stopwatch, enchanted armour under /damage, a furnace destroyed with
+  three RecipesUsed entries, a crafter, a scoreboard and one Carpet fake player.
+kind: external
+script: sweep-pair.sh
+compose: compose-sweep.yml
+expect: match
+ticks: 12000
+checkpoints: [3000, 6000, 9000, 12000]
+
+world:
+  seed: 12345
+  spawn_mobs: false        # every entity here is placed by the case, so the digest
+                           # holds nothing but what the paths under test moved
+  view_distance: 4
+  simulation_distance: 4
+  memory: 2G
+  level_type: minecraft:flat   # self-driven extension; see `self:` below
+
+jar:
+  seed: 1
+  trace_io: true           # the [detmc-dg] per-tick digest IS the comparison
+  flags: ""
+
+self:                      # read by sweep-pair.sh only
+  player: true             # one Carpet fake player (needs runner/fetch-carpet.sh)
+  pack: pack               # datapack copied into world/datapacks before first boot
+  pack_name: detmc_sweep
+  pack_namespace: detmc_sweep
+  probes: probes.txt       # per-path evidence commands, run at every checkpoint
+
+# The paths this case is built to exercise; probes.txt has the evidence probe per id.
+# 06-StructurePlaceSettings is absent on purpose: getRandom(null) has no caller in the
+# 26.2 server jar, so no command can reach it.
+paths:
+  - 01 InsideBrownianWalk
+  - 02 EntitySelectorParser
+  - 03 PlayerSpawnFinder
+  - 04 SpreadPlayersCommand
+  - 05 StructureBlockEntity
+  - 07 Stopwatches
+  - 08 ItemEnchantments
+  - 09 AbstractFurnaceBlockEntity
+  - 10 PoiSection
+  - 11 StackedContents
+  - 12 Scoreboard
+  - 13 ServerRecipeBook

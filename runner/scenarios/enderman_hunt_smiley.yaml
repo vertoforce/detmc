@@ -1,0 +1,55 @@
+# enderman_hunt, wave 2: the STRICT SMILEY is the only thing that stops a run.
+#
+# Same arena, same 20 endermen, same 64 loose blocks, same score metrics as
+# `enderman_hunt.yaml` -- this file is a DIFF over it (`extends:`), not a copy, so
+# the two waves are searching the identical world and a change to the arena
+# reaches both.
+#
+# Why: hunt-br-wave1 found the 3-high pillar TWICE (g18n0 at gametime 912020,
+# found by the armed-detector A/B after the fact, and g48n5 at gametime 2350060,
+# which stopped the search).  A detector that has already fired twice is no longer
+# what the hunt is for: every later generation would be stopped by another 3-stack
+# before the smiley ever had a chance.  So `pillar3` comes out of the detector set
+# and `smiley_strict` is the only hit.
+#
+# `pillar3` is NOT lost, it is demoted to a score metric -- and it already was
+# one.  The `stack` column_stack_profile below emits `stack_3` over the same
+# 25x25 interior, from the same base_y, with the same "3 non-air blocks above the
+# floor" semantics; runner/README.md ("`pillar3` and the `stack_3` score never
+# disagreed") diffed the two generated mcfunctions clause for clause and found
+# them identical 625/625.  So `stack_3 >= 1` IS the old detector, read at every
+# checkpoint, and `stack_max` carries it into the ranking.
+name: enderman_hunt_smiley
+extends: enderman_hunt.yaml
+
+detector:
+  # kind: multi, check_every_ticks: 20 and interval_ticks: 24000 are inherited.
+  # The list is REPLACED, not merged: smiley_strict is the whole detector set.
+  stop_on_hit: true               # only one detector left, so `all` == `true`
+  detectors:
+    - name: smiley_strict
+      kind: pattern
+      pattern: smiley_strict      # montecarlo/sim.py:226 + 247-265, see patterns.py
+      area: ["${anchor_x-12}", "${anchor_z-12}", "${anchor_x+12}", "${anchor_z+12}"]
+      base_y: "${anchor_y+1}"
+      levels: 2                   # scan anchor_y+1 and anchor_y+2
+
+# `score.metrics` is inherited verbatim (stack profile + relaxed smiley + strict
+# smiley).  Only the ranking changes, and it changes because the target changed.
+#
+# Lexicographic again, and strictly so.  Ranges: smiley_strict 0..7,
+# stack_max 0..4, max(smiley_gated, 0) 0..10, stack_blocks 0..64.  Each weight
+# exceeds the largest possible sum of everything below it:
+#   64 < 100;  10*100 + 64 = 1064 < 10000;  4*10000 + 1064 = 41064 < 100000.
+#
+# The order is now the hunt's order of USEFULNESS rather than of rarity:
+#   smiley_strict  cells of the exact 7-cell shape present at one scan level,
+#                  0..7 -- distance to the only remaining hit, so it leads
+#   stack_max      the 3-stack, still ranked second: it is the rarer event and a
+#                  world that builds tall is a world whose endermen are stacking
+#                  rather than shuffling, which is upstream of both patterns
+#   smiley_gated   relaxed-smiley progress (eyes + mouth cells), dense enough to
+#                  break the ties the two terms above leave
+#   stack_blocks   material actually left in the pen, the densest signal there is
+score:
+  rank: "100000*smiley_strict + 10000*stack_max + 100*max(smiley_gated, 0) + stack_blocks"

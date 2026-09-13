@@ -1,0 +1,21 @@
+name: reseed
+summary: >
+  /detmc reseed branches a world. Three replicas run identically to tick 1,000, then
+  R1 and R2 reseed to 777 and R3 to 778. R1 and R2 must stay together, R3 must leave.
+kind: pair
+expect: match
+ticks: 2000
+checkpoints: [1000, 1001, 1005, 1020, 1100, 1300, 1600, 2000]
+reseed_at: 1000
+world:
+  spawn_mobs: true
+jar:
+  seed: 1
+replicas:
+  R1: {reseed: 777}
+  R2: {reseed: 777}
+  R3: {reseed: 778}
+compare:
+  - {a: R1, b: R2, expect: match}
+  - {a: R1, b: R3, expect: diverge}
+timeout_s: 5400

@@ -1,0 +1,20 @@
+data*/
+.runs/
+phase7/
+*.jar
+.env
+!.env.example
+*.log
+*.done
+*.stage*
+
+# sweep case scratch: worlds, staged mods, per-run artifacts (io-*.txt is ~34 MB
+# per half under -Ddetmc.traceIo)
+/dataSweep*/
+/sweep-mods/
+/sweep-*.txt
+/sweep/
+
+# A datapack's top directory is literally `data/`, which `data*/` above would
+# swallow. Un-ignore the case packs only.
+!cases/*/pack/data/

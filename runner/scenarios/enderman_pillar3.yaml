@@ -1,0 +1,103 @@
+# Enderman 3-high pillar search.
+#
+# 20 persistent endermen on a flat dirt platform with LOOSE holdable blocks at
+# their foot level. montecarlo finding: the take goal only samples cells at or
+# above the enderman's own feet, so a solid floor is never picked up - the loose
+# blocks are what makes the search possible at all. The place goal puts a block one
+# step from the feet and STEP_HEIGHT 1.0 lets an enderman climb its own stack.
+#
+# No fake player on purpose: PersistenceRequired stops despawning, no player means
+# no despawn check at all, and an enderman that is looked at by a player turns
+# hostile and teleports instead of moving blocks. Forceload alone still gives
+# entity ticking (it does not give natural spawning, which this scenario does not
+# want). Permanent midnight (advance_time false) avoids the daylight teleport, so
+# the platform does not need a roof.
+#
+# Detector: any column of 3 stacked blocks inside the pen.
+name: enderman_pillar3
+
+world:
+  seeds: []
+  prefilter:
+    count: 1
+    start_seed: 1
+    max_seeds: 100000
+  requirements:
+    # flat-ish and snow-free: a snow layer at foot level would read as a placed block
+    spawn_biome: [minecraft:plains, minecraft:sunflower_plains, minecraft:savanna, minecraft:desert]
+    spawn_biome_radius: 48
+    structures: []
+
+server:
+  difficulty: normal
+  simulation_distance: 4
+  view_distance: 4
+  spawn_monsters: false
+  memory: 4G
+
+anchor:
+  from: spawn
+  offset: [0, 0, 0]
+  y: surface
+
+setup:
+  gamerules:
+    mob_griefing: true            # REQUIRED: the take/place goals are gated on it
+    spawn_mobs: false             # only the summoned endermen should move blocks
+    advance_time: false           # permanent midnight, no daylight teleport
+    advance_weather: false        # rain damages endermen and makes them teleport
+    random_tick_speed: 0          # no vegetation growth in the pen, and faster ticks
+  time: {set: midnight}
+  weather: {policy: clear, duration: 1000000}
+  forceload:
+    - from: ["${anchor_x-32}", "${anchor_z-32}"]
+      to: ["${anchor_x+32}", "${anchor_z+32}"]
+  prep:
+    # clear anything above the floor, then a flat dirt floor
+    - "fill ${anchor_x-9} ${anchor_y+1} ${anchor_z-9} ${anchor_x+9} ${anchor_y+8} ${anchor_z+9} minecraft:air"
+    - "fill ${anchor_x-9} ${anchor_y} ${anchor_z-9} ${anchor_x+9} ${anchor_y} ${anchor_z+9} minecraft:dirt"
+    # a 3-high stone-brick pen so they stay in the detector area. stone_bricks is
+    # not in #enderman_holdable, so the wall itself can never be carried off.
+    - "fill ${anchor_x-9} ${anchor_y+1} ${anchor_z-9} ${anchor_x-9} ${anchor_y+3} ${anchor_z+9} minecraft:stone_bricks"
+    - "fill ${anchor_x+9} ${anchor_y+1} ${anchor_z-9} ${anchor_x+9} ${anchor_y+3} ${anchor_z+9} minecraft:stone_bricks"
+    - "fill ${anchor_x-9} ${anchor_y+1} ${anchor_z-9} ${anchor_x+9} ${anchor_y+3} ${anchor_z-9} minecraft:stone_bricks"
+    - "fill ${anchor_x-9} ${anchor_y+1} ${anchor_z+9} ${anchor_x+9} ${anchor_y+3} ${anchor_z+9} minecraft:stone_bricks"
+    # loose holdable blocks at foot level, one every 3 blocks so each one is an
+    # isolated pickup target rather than a floor
+    - scatter:
+        area: ["${anchor_x-7}", "${anchor_z-7}", "${anchor_x+7}", "${anchor_z+7}"]
+        y: "${anchor_y+1}"
+        block: minecraft:dirt
+        spacing: 3
+  fake_players: []
+  summons:
+    - type: minecraft:enderman
+      count: 20
+      nbt: "{PersistenceRequired:1b,Silent:1b}"
+      at:
+        mode: grid
+        origin: ["${anchor_x-6}", "${anchor_y+1}", "${anchor_z-6}"]
+        spacing: 3                # offset from the loose-block grid, so nothing
+        cols: 5                   # is summoned inside a block
+
+detector:
+  kind: column_stack
+  area: ["${anchor_x-8}", "${anchor_z-8}", "${anchor_x+8}", "${anchor_z+8}"]
+  base_y: "${anchor_y+1}"         # first layer above the floor
+  height: 3
+  air_block: minecraft:air
+  interval_ticks: 2000
+  stop_on_hit: true
+
+run:
+  ticks: 240000                   # ~10 in-game days; the table guesses days-1 week
+  segment_ticks: 2000
+  replicas: 4
+  rng_seeds: [1, 2, 3, 4]
+  reseed: []                      # TODO: needs a `detmc reseed` command; none exists
+
+snapshots:
+  enabled: true
+  every_ticks: 24000
+  camera: ../camera/cams/topdown.json
+  render: false                   # world copies only; render later with camera/snap.sh

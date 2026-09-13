@@ -1,0 +1,277 @@
+# Lightning hits a village, on a map nobody built.
+#
+# THE EVENTS, five of them, all consequences of one 1/100,000-per-chunk-per-tick roll:
+#   lightning_village  a bolt exists inside the village volume
+#   fire_village       fire on a village block, AFTER a bolt (see `requires`)
+#   villager_killed    the tagged villager count drops below the setup count
+#   charged_creeper    a creeper with `powered:1b`
+#   skeleton_trap      a skeleton horse trap spawned
+#
+# ALL OF IT COMES OUT OF ONE METHOD, read from the 26.2 source rather than guessed
+# (`ServerLevel.tickThunder`, ServerLevel.java:540):
+#
+#   if (raining && isThundering() && random.nextInt(100000) == 0) {
+#      BlockPos pos = findLightningTargetAround(getBlockRandomPos(minX, 0, minZ, 15));
+#      if (isRainingAt(pos)) {
+#         boolean isTrap = getGameRules().get(SPAWN_MOBS)
+#            && random.nextDouble() < difficulty.getEffectiveDifficulty() * 0.01
+#            && !getBlockState(pos.below()).is(LIGHTNING_RODS);
+#         if (isTrap) { SkeletonHorse ... setTrap(true) ... addFreshEntity }
+#         LightningBolt bolt = ...; bolt.setVisualOnly(isTrap); addFreshEntity(bolt);
+#      }
+#   }
+#
+# Four consequences the scenario is built around:
+#   * it is called from `ServerChunkCache.tickSpawningChunk` (ServerChunkCache.java:418)
+#     and only when `distanceManager.inEntityTickingRange(chunkPos)`, and
+#     `tickSpawningChunk` is only reached for chunks `ChunkMap.collectSpawningChunks`
+#     returned -- which needs `anyPlayerCloseEnoughForSpawningInternal`, i.e. a
+#     non-spectator player within 128 blocks.  **A forceload alone gives NO lightning.**
+#     The creative fake players are what make this scenario exist; the forceload is what
+#     makes the village chunks entity-ticking so they qualify at all.
+#   * fire needs difficulty NORMAL or HARD: `LightningBolt.tick` only calls
+#     `spawnFire(4)` for those two.  `easy` would give bolts and no fire.
+#   * the skeleton-horse trap is gated on the `spawn_mobs` gamerule AND on effective
+#     difficulty, so hard maximises it -- and a trap bolt is `setVisualOnly(true)`, so
+#     a trap strike does no damage and lights no fire.  The two hits are exclusive.
+#   * `isRainingAt` requires RAIN precipitation and sky access, so this needs a rain
+#     biome.  A `village_plains` is one; deserts, savannas and snowy biomes never get
+#     strikes at all.
+name: village_lightning
+
+world:
+  # The same world the villager-trap hunt uses, and for a reason: its plains village is
+  # already confirmed on a real 26.2 server (`locate structure` puts it at 240,-320,
+  # 400 blocks from a world spawn of 0,0; the survey found 15 beds, 8 doors and 10
+  # villagers there).  Reusing it costs no prefilter run and makes the two hunts
+  # comparable.  The seed itself came from
+  # `random.Random(0x6d65742d64657403).getrandbits(64)` folded to a Java long.
+  seeds: [3795784043239602249]
+  prefilter:
+    count: 1
+    start_seed: 1
+    max_seeds: 400
+  requirements:
+    spawn_biome: []
+    spawn_biome_radius: 0
+    structures:
+      - {id: minecraft:village_plains, within: 512}
+
+server:
+  # hard, not easy: fire needs normal-or-hard (LightningBolt.tick) and the skeleton
+  # trap probability is `effectiveDifficulty * 0.01`, so hard maximises the one event
+  # that has never been observed here.  The cost is that zombies can break doors and
+  # zombify villagers, which makes `villager_killed` a noisy detector -- see the note
+  # on `stop_on_hit` below.
+  difficulty: hard
+  simulation_distance: 4
+  view_distance: 4
+  spawn_monsters: true
+  memory: 1G
+
+anchor:
+  from: structure
+  structure: minecraft:village_plains
+  offset: [0, 0, 0]
+  y: surface
+  surface_ymax: 140
+
+setup:
+  gamerules:
+    spawn_mobs: true                # REQUIRED for the skeleton-horse trap branch
+    advance_time: true
+    advance_weather: true           # the weather clock runs; see `weather` below
+    mob_griefing: true              # fire spread, and creeper craters in the village
+    random_tick_speed: 3            # REQUIRED: fire SPREADS on random ticks, so a
+                                    # rate of 0 would give one burning block and no
+                                    # village fire
+    spawn_patrols: false
+    spawn_wandering_traders: false
+    spawn_phantoms: false
+    max_command_sequence_length: 1000000   # see the villager-trap scenario: the
+                                           # survey's first pass is ~9,800 offsets
+                                           # per villager and the default is 65,536
+  time: {set: 13000}
+  # A FORCED thunderstorm, and this is the one deliberate departure from "natural".
+  # `ServerLevel` derives its thunder duty cycle from the RAIN/THUNDER delay and
+  # duration constants (ServerLevel.java:188-191) at a fraction of ~0.0144 of the
+  # time, so the natural rate is 1e-5 x 0.0144 x 81 chunks = 1.2e-5 strikes/tick --
+  # one strike per ~86,000 ticks anywhere in the loaded area.  Thundering throughout
+  # is 69x that: 8.1e-4/tick, one strike per ~1,235 ticks, ~19 per in-game day.
+  # `advance_weather` is still true, so the clock runs and the storm expires after
+  # `duration`; set `policy: natural` instead to measure the true rate rather than to
+  # hunt for the event.
+  weather: {policy: thunder, duration: 1000000}
+  forceload:
+    # Entity ticking for the village.  NOT what makes lightning roll (the players are),
+    # but required for the village chunks to be ticking chunks at all, which
+    # `collectSpawningChunks` demands before the 128-block player test is even reached.
+    - from: ["${anchor_x-64}", "${anchor_z-64}"]
+      to: ["${anchor_x+64}", "${anchor_z+64}"]
+  fake_players:
+    # ONE creative player at the village centre, not a ring, and for two reasons that
+    # point the same way.
+    #
+    # Measured (runner/README.md, "Measured: 1 player beats 4 and 8"): a ring of 4 or 8
+    # round this same village cut the endermen in it from 1.00 to 0.12 to 0.00 and cut
+    # throughput from 173.8 to 84.2 to 71.4 ticks/s.
+    #
+    # And for lightning specifically the ring cannot help even in principle.
+    # `ServerLevel.tickThunder` rolls `random.nextInt(100000) == 0` **per spawning
+    # chunk per tick**, and a chunk either is a spawning chunk or is not; a second
+    # player standing near it does not make it roll twice.  One player already makes
+    # every village chunk qualify (forceloaded, so entity-ticking, and within 128
+    # blocks), so extra players only add rolls in chunks that are not the village --
+    # more strikes somewhere else, at half the tick rate.
+    - {name: stormwatch, at: ["${anchor_x}", "${anchor_y+1}", "${anchor_z}"], facing: [0, 0], gamemode: creative}
+  prep: []
+  summons: []
+  tag_entities:
+    - selector: "@e[type=minecraft:villager,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=64,dz=128]"
+      tag: village_villager
+  # The same villager-anchored survey the trap scenario uses.  Here it is not the
+  # detector's baseline, it is the village's FOOTPRINT: the bed markers are where the
+  # houses are, so `fire_village` can be scored per bed instead of over a box that is
+  # mostly field.
+  survey:
+    marks: []
+    derive:
+      - tag: detmc_bed
+        from_selector: "@e[type=minecraft:villager,tag=village_villager]"
+        radius: 16
+        y_levels: [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+        if_block: "#minecraft:beds"
+      - tag: detmc_door
+        from: detmc_bed
+        radius: 8
+        y_levels: [-3, -2, -1, 0, 1, 2, 3]
+        if_block: "#minecraft:doors"
+        unless_below: "#minecraft:doors"
+
+detector:
+  kind: multi
+  # 1, not 20.  A LightningBolt lives a handful of ticks: `life` starts at 2, the
+  # visual flashes reset it to 1 a few times, and then it discards itself, so a
+  # 20-tick gate would miss most strikes.  The cost is bounded because four of the
+  # five detectors are one `execute store result ... if entity` each, and the
+  # expensive one is gated behind `requires`.
+  check_every_ticks: 1
+  interval_ticks: 24000
+  # `all`: every one of these is worth recording and none of them should end the run,
+  # because on `hard` a zombie kills a villager long before lightning does.  For a
+  # branch.py search use `--no-stop-on-hit` for the same reason -- branch.py stops the
+  # whole search at the first node that hits ANYTHING, which would be villager_killed
+  # on the first night.
+  stop_on_hit: all
+  detectors:
+    # 1. a bolt inside the village volume.  `lightning_bolt` is an entity, so this is
+    #    one command, and the volume is what makes it "in the village" rather than
+    #    "somewhere in the loaded area".
+    - name: lightning_village
+      kind: entity_count
+      selector: "@e[type=minecraft:lightning_bolt,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=96,dz=128]"
+      op: ">="
+      threshold: 1
+    # 2. fire on a village block, and only AFTER a bolt has been seen in the village.
+    #    `requires` is what makes this affordable: it is one command per cell per
+    #    level (49x49x3 = 7,203) and it costs nothing at all until its cause happens.
+    - name: fire_village
+      kind: block_present
+      requires: [lightning_village]
+      area: ["${anchor_x-24}", "${anchor_z-24}", "${anchor_x+24}", "${anchor_z+24}"]
+      base_y: "${anchor_y-1}"
+      levels: 3
+      block: minecraft:fire
+    # 3. a tagged villager died.  `threshold: baseline` is measured at setup by
+    #    run.py, and the tag (not a distance) is what distinguishes a dead villager
+    #    from one that walked off.
+    - name: villager_killed
+      kind: entity_count
+      selector: "@e[type=minecraft:villager,tag=village_villager]"
+      op: "<"
+      threshold: baseline
+    # 4. a charged creeper.  `Creeper.addAdditionalSaveData` writes the boolean as
+    #    `powered` (Creeper.java:108), so that is the NBT to match.
+    - name: charged_creeper
+      kind: entity_count
+      selector: "@e[type=minecraft:creeper,nbt={powered:1b},x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=96,dz=128]"
+      op: ">="
+      threshold: 1
+    # 5. the skeleton-horse trap.  Rarest of the five: it needs the strike roll AND
+    #    `random.nextDouble() < effectiveDifficulty * 0.01`, which is why this scenario
+    #    runs on hard.
+    - name: skeleton_trap
+      kind: entity_count
+      selector: "@e[type=minecraft:skeleton_horse,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=96,dz=128]"
+      op: ">="
+      threshold: 1
+
+score:
+  metrics:
+    # "strikes near the village" cannot be read at a checkpoint directly -- a bolt is
+    # gone within ~10 ticks and nothing in the world counts them.  Its PERSISTENT
+    # traces can: fire in the village, and fire within 3 of a house door, which is the
+    # difference between a strike in the field and a strike on the village.
+    - name: fire
+      kind: cell_block_count
+      block: minecraft:fire
+      area: ["${anchor_x-24}", "${anchor_z-24}", "${anchor_x+24}", "${anchor_z+24}"]
+      base_y: "${anchor_y-1}"
+      levels: 3
+    - name: firedoor
+      kind: marker_neighbourhood_count
+      marker_tag: detmc_door
+      radius: 3
+      y_levels: [0, 1, 2]
+      if_block: minecraft:fire
+    - name: charged
+      kind: entity_count
+      selector: "@e[type=minecraft:creeper,nbt={powered:1b},x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=96,dz=128]"
+    - name: horses
+      kind: entity_count
+      selector: "@e[type=minecraft:skeleton_horse,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=96,dz=128]"
+    - name: villagers
+      kind: entity_count
+      selector: "@e[type=minecraft:villager,tag=village_villager]"
+    - name: endermen
+      kind: entity_count
+      selector: "@e[type=minecraft:enderman,x=${anchor_x-64},y=${anchor_y-24},z=${anchor_z-64},dx=128,dy=64,dz=128]"
+  # Lexicographic, leading with the trace that means "a storm hit the HOUSES":
+  #   firedoor_max  fire within 3 of one door        0..146 (the offset count)
+  #   fire          fire anywhere in the village     0..~7,200 in principle, tens in
+  #                                                  practice, so weighted above villagers
+  #   horses        skeleton-horse traps             0..few
+  #   charged       charged creepers                 0..few
+  #   villagers     alive, so a dying village ranks BELOW a living one at equal fire
+  # Weights exceed the largest possible sum below: villagers <= 40; 40 < 100;
+  # 4x100+40 < 10,000; 4x10,000+440 < 1,000,000; 200x1,000,000 fits an int64 rank.
+  rank: "100000000*firedoor_max + 1000000*fire + 10000*horses + 100*charged + villagers"
+
+resume:
+  # Nothing built, nothing summoned; the villagers, the mobs and the survey markers are
+  # all saved with the world on the merged jar, so a generation inherits the whole
+  # state.  The WEATHER is saved too (level.dat carries raining/thundering and their
+  # timers), which matters here more than anywhere else: a resumed node picks the storm
+  # back up rather than starting clear.
+  resummon: true
+  restore_material: null
+
+run:
+  ticks: 8760000
+  segment_ticks: 48000
+  replicas: 4
+  # splitmix64(0x6d65742d64657403 ^ world_seed ^ (i+1)*0x9E3779B97F4A7C15) & (2^62-1),
+  # i.e. run.derive_rng_seeds(3795784043239602249, 8).  Same world, same derivation and
+  # therefore the same list as the villager-trap hunt: these are per-replica
+  # identities, and two scenarios on one world should not disagree about which seed
+  # replica 0 is.
+  rng_seeds: [1451989592335860511, 1289328537281507103, 1920362754030561443,
+              1948123813014443575, 697335652302886549, 1253803336939722918,
+              1090469975461805774, 469564610418456603]
+  reseed: []
+
+snapshots:
+  enabled: false
+  every_ticks: 720000
+  camera: ../camera/cams/oblique.json
+  render: false
