@@ -65,6 +65,16 @@ public final class DetExecutors {
      * on {@code detmc.syncChunks}.
      */
     public static final String PROP_SYNC_RANDOM = "detmc.syncRandom";
+    /**
+     * Phase 9. {@code saveEverything} returns while the entity, POI and chunk region
+     * writes it queued are still on the IO worker, and the RNG sidecar this mod writes at
+     * its tail was therefore not a completion signal. Measured 2026-09-13 on a 6,000-tick
+     * pair: the harness copied {@code entities/r.0.-1.mca} with 47 of 62 chunks still at
+     * the previous autosave's state, one gametime older, and two zombies pushing each
+     * other differed by exactly that one tick. The barrier joins every level's region
+     * writers before the sidecar is written. {@code -Ddetmc.saveBarrier=false} opts out.
+     */
+    public static final String PROP_SAVE_BARRIER = "detmc.saveBarrier";
 
     private static final ThreadLocal<ArrayDeque<Runnable>> PENDING =
             ThreadLocal.withInitial(ArrayDeque::new);
@@ -111,6 +121,11 @@ public final class DetExecutors {
     /** Default on. {@code -Ddetmc.syncRandom=false} opts out. */
     public static boolean syncRandom() {
         return !"false".equalsIgnoreCase(System.getProperty(PROP_SYNC_RANDOM, "true"));
+    }
+
+    /** Default on. {@code -Ddetmc.saveBarrier=false} opts out. */
+    public static boolean saveBarrier() {
+        return !"false".equalsIgnoreCase(System.getProperty(PROP_SAVE_BARRIER, "true"));
     }
 
     /** Default on. {@code -Ddetmc.syncReads=false} opts out. */

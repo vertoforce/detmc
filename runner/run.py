@@ -1308,8 +1308,8 @@ class Replica:
         return n
 
     def probe_reseed(self):
-        """Is there a `/detmc reseed <long>` command on this server?  Another agent
-        is adding one; the wiring here must not break while it is absent."""
+        """Is there a `/detmc reseed <long>` command on this server?  The command
+        arrived after this wiring did; it must not break on a jar without it."""
         if self.run.args.reseed == "off":
             return False
         # `detmc` on its own is an incomplete command and answers like a missing

@@ -21,7 +21,7 @@ the server does its work.
 - Runs at full `/tick sprint` speed. Measured cost is 1.13x vanilla ms per tick.
 - `/detmc reseed <long>` re-keys the RNG mid-run. One saved world can branch into many timelines.
 - The RNG stream position is written into the save, so a resumed run replays the block
-  world, the seed stream and mob state. One residual is open: see the resume caveat below.
+  world, the seed stream and mob state.
 - Scenario runner: one YAML file per search, a seed prefilter, in-game detectors, snapshots.
 - Branching search that keeps the best worlds of each generation and forks children from them.
 - Headless renderer (a patched Chunky) that draws blocks and mobs straight from the save files.
@@ -95,10 +95,14 @@ What this does not show:
   (`AcquirePoiMixin`): the same pair now reads **0 of 62** entity chunks differing in
   canonical NBT, with the per-tick digest and the level draw count identical at all 6,001
   gametimes. Details in `docs/STATUS.md`, "that divergence is `AcquirePoi`".
-- One residual is open. In one of two post-fix 6,000-tick pairs, two zombies in a single
-  entity chunk still ended up in different places. They sit outside the per-tick digest's
-  view, so it is not yet dated to a tick. Everything a search reads -- blocks, scoreboard
-  metrics, detector hits, the final gametime and the RNG sidecar -- matches.
+- The one residual after that fix, two zombies in a single entity chunk that still ended
+  up in different places in one of two 6,000-tick pairs, was the checkpoint copy and not
+  the game: a plain `save-all` returns while the entity region writes are still queued on
+  the IO worker, and the copy caught one chunk at the previous save, one gametime older.
+  The mod now waits for those writes before it writes the sidecar the harness copies on
+  (`detmc.saveBarrier`, default on). Three more 6,000-tick pairs read 0 of 62 entity
+  chunks differing, with every entity chunk stamped by the final save in both runs.
+  Details in `docs/STATUS.md`, "the residual was the checkpoint copy".
 - `Brain.memories` serialises in an unstable key order, because `MemoryModuleType`
   declares no `hashCode`. It is serialisation order only: the two entity chunks that still
   differ byte-for-byte in the pair above hold identical values. `branch.py verify` reports

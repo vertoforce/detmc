@@ -1407,3 +1407,79 @@ from a `StackWalker`. It is what named `AcquirePoi`; the per-tick digest could o
 the divergence, not attribute it. Entity randoms are deliberately left out --
 `traceEntityWindow` already carries their draw counts, and 208 stack walks a tick is not
 affordable. Cost when off is one static array-length test per `next(bits)` call.
+
+## 2026-09-13: the residual was the checkpoint copy, not the game
+
+**Correction to the section above: the two zombies were never invisible to the digest.**
+`-Ddetmc.traceEntityWindow=8741995:8742001` on a fresh pair prints both zombies in
+every per-tick row set, and `n == vis` at every gametime is not evidence of a blind
+spot: `getAllEntities()` and `getEntities(null, box, e -> true)` both walk the
+accessible entity sections only (`EntitySectionStorage.forEachAccessibleNonEmptySection`
+filters on `Visibility.isAccessible`, checked with `javap`), so the widened digest hashes
+the same set as the old one. The 145 saved entities it never counted sit in entity chunks
+that are not loaded at all.
+
+**Cause: `save-all` returns, and the mod writes its sidecar, while the entity region
+writes are still queued on the IO worker; the harness copies the world on the sidecar.**
+`ServerLevel.save(flush=false)` calls `PersistentEntitySectionManager.autoSave()`, which
+hands one `SimpleRegionStorage.write` per entity chunk to the entity storage's `IOWorker`
+(a `PriorityConsecutiveExecutor` on `Util.ioPool()`, deliberately not same-threaded).
+`detmc$persistRng` at the tail of `saveEverything` then wrote `detmc-rng.properties`,
+`Replica.save_world` returned on that mtime, and `branch.py checkpoint()` copied
+`entities/*.mca` with whatever the worker had written so far. The rest of the file was the
+previous save, and on a 6,000-tick segment the previous save is the world-clock autosave
+at gametime 8742000, one tick before the end.
+
+Evidence, from the pair the section above called the residual:
+
+| reading | run A | run B |
+|---|---|---|
+| `entities/r.0.-1.mca` header timestamps (bytes 4096..8191, one second per chunk) | 47 chunks at 23:44:29, 15 at 23:44:35 | 42 at 23:46:20-21, 20 at 23:46:25-26 |
+| `[detmc] saveEverything done` lines | autosave 23:44:29 (gt 8742000), `save-all` 23:44:35 (gt 8742001) | 23:46:20 and 23:46:25 |
+| chunk `15,10` stamped by | the **autosave** | the **final save** |
+| chunks stale in one run only | `10,11` `14,11` `15,10` `16,17` `20,8` | none |
+| zombie `41095886` `Pos.z`, raw bits, in the checkpoint | `-4578739357012963027` | `-4578739121915903304` |
+| the same zombie's `[detmc-ew]` row on a fresh pair, both runs | gt 8742000: `-4578739357012963027` | gt 8742001: `-4578739121915903304` |
+
+So run A's chunk `15,10` is the state at gametime 8742000 and run B's is the state at
+8742001, and both runs agree on both states. The two zombies stand in a one-block gap
+pushing each other, so they are the one pair of mobs in those five chunks that moves
+every tick; the donkey, sheep, creeper, zombie villager and llama in the other four stale
+chunks had not moved in that tick, which is why only one chunk differed in canonical NBT.
+The clean pair had the same stale/fresh split (51/11 and 11+40/11) and read 0 of 62 by
+luck of which chunks each copy caught.
+
+**Fix: the sidecar waits for the writes.** `MinecraftServerMixin.detmc$saveBarrier`,
+called at the tail of `saveEverything` before `DetRng.persistState`: for every level,
+`chunkMap.synchronize(false).join()` plus the `activeChunkWrites` spin already used by
+`detmc$ioBarrier`, the POI manager's `SimpleRegionStorage.synchronize(false).join()`
+(`SectionStorageAccessor`), `EntityStorage.flush(false)` through
+`ServerLevelAccessor`/`PersistentEntitySectionManagerAccessor`, and
+`SavedDataStorage.saveAndJoin()` for `data/*.dat` (the truncated `scoreboard.dat` the
+checkpoint copy has caught before is the same race). `synchronize(false)` waits for the
+queued writes without forcing the files, which is all a copy through the page cache
+needs. `save-all flush` was not an option: measured in this repo it never returns on a
+frozen detmc server. Cost: `[detmc] save barrier: region writes landed in 153-164 ms`
+at each of the two saves on a 62-entity-chunk world. `-Ddetmc.saveBarrier=false` opts out.
+
+**Result, same parent, same reseed, no fake player, 6,000 ticks, AcquirePoi fix plus
+save barrier:**
+
+| reading | before the barrier (2 pairs) | after |
+|---|---|---|
+| `entities/r.0.-1.mca` header timestamps | two seconds per run, split 47/15, 42/20, 51/11, 11+40/11 | **one second, 62 of 62, both runs, all 3 pairs** |
+| zombie `41095886` `Pos.z` in the checkpoint vs its gt 8742001 digest row | equal in one run, one tick behind in the other | **equal in both runs** |
+| entity chunks differing in canonical NBT | 1 of 62, then 0 of 62 | **0 of 62, in 3 of 3 pairs** |
+| raw entity chunk payloads differing | 2 of 715, key order | 2, 2, then 0 of 715, key order only (`Brain.memories`) |
+| block region chunks differing | 0 | 0 |
+| per-tick digest, level draw count | identical at all 6,001 gametimes | identical at all 6,001 gametimes |
+
+The `region md5` line on the entity file reads DIFFER in the two pairs with key-order
+chunks: it is the raw-byte md5 and those chunks are inside it. `entity chunk state` is the
+verdict for entities; the third pair reads ALL CRITERIA MATCH.
+
+Regression on the final jar (AcquirePoi fix plus save barrier), `test/run-tests.sh --case
+replay-from-save --case sweep`: **replay-from-save PASS (8.8 min), sweep PASS (24.1 min)**,
+junit `test/.runs/final-2026-09-13.xml`, 2 tests, 0 failures. The same two cases also
+passed on the AcquirePoi-only jar (9.3 and 23.9 min).
+

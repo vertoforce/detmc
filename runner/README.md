@@ -414,7 +414,11 @@ Two saving rules, both from measurements already in this repo:
 - `save-all`, never `save-all flush`. The flush does not return on a detmc server.
   `Replica.save_world` issues the plain one and waits on the mtime of
   `<world>/detmc-rng.properties`, which the mod rewrites on every save. Measured in
-  `hunt-br1`: 0.1-0.2 s.
+  `hunt-br1`: 0.1-0.2 s. Since 2026-09-13 the mod writes that file only after every
+  region and `data/*.dat` write the save queued has landed (`-Ddetmc.saveBarrier`,
+  default on). Before that the sidecar came first and the copy below could carry
+  entity chunks from the previous save: measured on a 6,000-tick pair, 47 of 62 entity
+  chunks one gametime stale in one arm, which read as two zombies "diverging".
 - The checkpoint is copied out from under the still-running, still-frozen server.
   Not after `docker compose down`: compose's 10 s stop timeout SIGKILLs one of these
   servers before its shutdown save finishes (test/, 2026-09-12), so the on-disk
@@ -2444,7 +2448,7 @@ do with lightning, so it must not be allowed to end a search.
 setsid nohup .venv/bin/python branch.py search scenarios/enderman_villager_trap.yaml \
     --run-id hunt-villager-wave1 --replicas 3 --generations 183 --keep-top 1 \
     --children 2 --segment-ticks 48000 --concurrency 3 \
-    --jar /root/apps/mc-determinism/fabric/build/libs/detmc-0.1.0.jar \
+    --jar ../fabric/build/libs/detmc-0.1.0.jar \
     >> runs/hunt-villager-wave1/driver.log 2>&1 < /dev/null &
 ```
 

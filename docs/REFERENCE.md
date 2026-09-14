@@ -23,6 +23,7 @@ Leave these alone for a normal deterministic server.
 | `detmc.syncChunks` | boolean | `true` | Runs chunk generation and loading on the server thread, fixing their order. The main ordering fix. Set `false` to measure its cost. |
 | `detmc.syncTasks` | boolean | `true` | Runs a queued main-thread task in the tick that queued it, not a wall-clock-chosen tick up to three later. |
 | `detmc.syncReads` | boolean | `true` | Region reads for chunks, entities, POI return before the caller continues, so entity construction lands at the request point. |
+| `detmc.saveBarrier` | boolean | `true` | Every save (`save-all`, the autosave) waits for the entity, POI, chunk and `data/*.dat` writes it queued before the mod writes `detmc-rng.properties`, so the sidecar is a completion signal. Without it a copy taken on the sidecar can carry entity chunks from the previous save. |
 
 ## Harness and debug
 

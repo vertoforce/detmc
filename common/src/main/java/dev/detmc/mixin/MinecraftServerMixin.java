@@ -9,6 +9,7 @@ import java.util.function.BooleanSupplier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.WorldOptions;
@@ -85,6 +86,11 @@ public abstract class MinecraftServerMixin {
      */
     @Inject(method = "saveEverything(ZZZ)Z", at = @At("TAIL"))
     private void detmc$persistRng(boolean silent, boolean flush, boolean force, CallbackInfoReturnable<Boolean> cir) {
+        // Phase 9: the sidecar is what the harness waits on before it copies the world out,
+        // so every region write this save queued has to be on disk before the sidecar is.
+        if (DetExecutors.saveBarrier()) {
+            detmc$saveBarrier((MinecraftServer) (Object) this);
+        }
         DetRng.persistState(((MinecraftServer) (Object) this).getWorldPath(LevelResource.ROOT));
         // Phase 7: SaveAllCommand is silent and `save-all flush` over rcon times out on a busy
         // server, so this is the only evidence that the save actually finished. The harness
@@ -256,6 +262,60 @@ public abstract class MinecraftServerMixin {
             }
         }
         return waited;
+    }
+
+    /**
+     * Phase 9 — a plain {@code save-all} (and the autosave) returns with its region writes
+     * still queued on the IO workers.
+     *
+     * <p>{@code ServerLevel.save(flush=false)} calls {@code entityManager.autoSave()}, which
+     * hands one {@code SimpleRegionStorage.write} per entity chunk to the entity storage's
+     * {@code IOWorker}; {@code PoiManager} and {@code ChunkMap} do the same with their own
+     * workers. With {@code sync-chunk-writes=true} each write is a DSYNC file write, so 62
+     * entity chunks take seconds, and the sidecar {@code detmc$persistRng} writes at the
+     * tail of {@code saveEverything} used to land before them. Measured 2026-09-13
+     * (runs/verify-acqfix-6k, region-file timestamp tables): the harness copied
+     * {@code entities/r.0.-1.mca} with 47 of 62 chunks still at the previous autosave's
+     * bytes, one gametime older, and two zombies pushing each other in one of those chunks
+     * differed between the arms by exactly the one tick between the autosave and the end.
+     * The per-tick digest, which does hash those zombies, was identical at every gametime.
+     *
+     * <p>{@code save-all flush} is not the answer: measured in this repo it does not return
+     * on a frozen detmc server ({@code ChunkMap.saveAllChunks(true)} blocks on
+     * {@code managedBlock(isReadyForSaving)}). This joins the three writers' queues with
+     * {@code synchronize(false)}, which waits for the pending writes without forcing the
+     * files, and reuses the chunk-write spin from {@link #detmc$ioBarrier}.
+     */
+    @Unique
+    private void detmc$saveBarrier(MinecraftServer self) {
+        long t0 = System.nanoTime();
+        detmc$ioBarrier(self);
+        for (ServerLevel level : self.getAllLevels()) {
+            ServerChunkCache chunks = level.getChunkSource();
+            try {
+                ((SectionStorageAccessor) chunks.getPoiManager()).detmc$simpleRegionStorage()
+                        .synchronize(false).join();
+            } catch (RuntimeException e) {
+                DetRng.LOGGER.warn("[detmc] poi write barrier failed", e);
+            }
+            try {
+                // EntityStorage.flush(false): simpleRegionStorage.synchronize(false).join(),
+                // then runAll() on the (empty, with syncReads) deserialiser queue.
+                ((PersistentEntitySectionManagerAccessor) ((ServerLevelAccessor) level).detmc$entityManager())
+                        .detmc$permanentStorage().flush(false);
+            } catch (RuntimeException e) {
+                DetRng.LOGGER.warn("[detmc] entity write barrier failed", e);
+            }
+            try {
+                // data/*.dat (scoreboard, maps, raids) go out on Util.ioPool() too; the
+                // harness has caught a truncated scoreboard.dat in a checkpoint copy.
+                level.getDataStorage().saveAndJoin();
+            } catch (RuntimeException e) {
+                DetRng.LOGGER.warn("[detmc] saved-data barrier failed", e);
+            }
+        }
+        DetRng.LOGGER.info("[detmc] save barrier: region writes landed in {} ms",
+                (System.nanoTime() - t0) / 1_000_000L);
     }
 
     @Unique
