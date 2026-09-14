@@ -8,6 +8,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityAccess;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -48,6 +49,18 @@ public final class DetTrace {
      */
     public static final String PROP_TRACE_ENTITY_WINDOW = "detmc.traceEntityWindow";
 
+    /**
+     * Phase 9 probe, off unless {@code -Ddetmc.traceDraws=lo:hi} is set (gametimes,
+     * inclusive, several ranges allowed). The per-tick digest's {@code levelRng=draws,state}
+     * field dates a divergence to the tick on which two runs took a different <em>number</em>
+     * of draws from the level {@code RandomSource}, but it cannot say who took the extra one.
+     * Inside the window this logs one line per draw <em>from the overworld level's own
+     * {@code RandomSource}</em> with the calling frames, so a diff names the call site. Entity
+     * randoms are left out on purpose: {@code traceEntityWindow} already carries their draw
+     * counts, and tracing all 208 of them would be thousands of stack walks per tick.
+     */
+    public static final String PROP_TRACE_DRAWS = "detmc.traceDraws";
+
     private static final boolean TRACE = Boolean.getBoolean(PROP_TRACE);
     private static final boolean TRACE_SPAWN_LIGHT = Boolean.getBoolean(PROP_TRACE_SPAWN_LIGHT);
     private static final AtomicLong SEQ = new AtomicLong();
@@ -56,11 +69,13 @@ public final class DetTrace {
     private static final ThreadLocal<String> SPAWN_CHUNK = ThreadLocal.withInitial(() -> "-");
     private static final boolean TRACE_IO = Boolean.getBoolean(PROP_TRACE_IO);
     /** Phase 7: several windows, {@code lo:hi[,lo:hi...]}, inclusive gametimes. */
-    private static final long[][] WINDOWS;
+    private static final long[][] WINDOWS = parseWindows(PROP_TRACE_ENTITY_WINDOW);
+    /** Phase 9: the same shape, for {@link #PROP_TRACE_DRAWS}. */
+    private static final long[][] DRAW_WINDOWS = parseWindows(PROP_TRACE_DRAWS);
 
-    static {
+    private static long[][] parseWindows(String property) {
         List<long[]> windows = new ArrayList<>();
-        for (String part : System.getProperty(PROP_TRACE_ENTITY_WINDOW, "").split(",")) {
+        for (String part : System.getProperty(property, "").split(",")) {
             int colon = part.indexOf(':');
             if (colon <= 0) {
                 continue;
@@ -73,16 +88,59 @@ public final class DetTrace {
                 // malformed window: ignored
             }
         }
-        WINDOWS = windows.toArray(new long[0][]);
+        return windows.toArray(new long[0][]);
     }
 
-    private static boolean inWindow(long gameTime) {
-        for (long[] w : WINDOWS) {
+    private static boolean inWindow(long[][] windows, long gameTime) {
+        for (long[] w : windows) {
             if (gameTime >= w[0] && gameTime <= w[1]) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean inWindow(long gameTime) {
+        return inWindow(WINDOWS, gameTime);
+    }
+
+    /**
+     * Phase 9 — one line per RNG draw inside {@code -Ddetmc.traceDraws}, naming the caller.
+     *
+     * <p>Off by default and guarded by a static array length, so a normal run pays one
+     * array load per {@code next(bits)} call. Inside the window it pays a {@link StackWalker}
+     * walk, which is why the window has to be a handful of ticks.
+     */
+    public static void drawSite(Object rng, long draws) {
+        if (DRAW_WINDOWS.length == 0) {
+            return;
+        }
+        MinecraftServer instance = server;
+        if (instance == null) {
+            return;
+        }
+        ServerLevel overworld = instance.overworld();
+        if (overworld == null) {
+            return;
+        }
+        if (rng != overworld.getRandom()) {
+            return;                     // level RandomSource only: see the field doc
+        }
+        long gameTime = overworld.getGameTime();
+        if (!inWindow(DRAW_WINDOWS, gameTime)) {
+            return;
+        }
+        String caller = StackWalker.getInstance()
+                .walk(frames -> frames
+                        .filter(f -> !f.getClassName().startsWith("dev.detmc")
+                                && !f.getClassName().equals("net.minecraft.world.level.levelgen.LegacyRandomSource")
+                                && !f.getClassName().equals("net.minecraft.util.RandomSource"))
+                        .limit(8)
+                        .map(f -> f.getClassName().replaceAll("^.*\\.", "")
+                                + "." + f.getMethodName() + ":" + f.getLineNumber())
+                        .reduce((a, b) -> a + "<" + b)
+                        .orElse("?"));
+        DetRng.LOGGER.info("[detmc-dr] gt={} n={} at={}", gameTime, draws, caller);
     }
 
     /**
@@ -91,6 +149,10 @@ public final class DetTrace {
      * clause was false so the verdict came from {@code haveTime()}. Counted on the main
      * thread only and printed by {@link #tickDigest}.
      */
+    /** Half-width in blocks of the box {@link #tickDigest} hashes. */
+    private static final double DIGEST_RADIUS =
+            Double.parseDouble(System.getProperty("detmc.digestRadius", "2048"));
+
     private static int clockDecidedTasks;
     private static volatile MinecraftServer server;
 
@@ -191,7 +253,26 @@ public final class DetTrace {
             return;
         }
         List<String> rows = new ArrayList<>();
-        for (Entity e : level.getAllEntities()) {
+        // ServerLevel.getAllEntities() is the VISIBLE lookup only: LevelEntityGetterAdapter.getAll()
+        // reads `visibleEntities`, so an entity whose chunk is loaded but not tracked never reaches
+        // it.  Measured 2026-09-13: 208 of the 353 entities in the villager checkpoint are visible,
+        // and two zombies that the save shows moving apart were invisible to this digest for a whole
+        // 6,000-tick pair.  getEntities(except, box, predicate) goes through the section storage
+        // instead, so the digest covers every loaded entity.
+        int visible = 0;
+        for (Entity ignored : level.getAllEntities()) {
+            visible++;
+        }
+        // Bounded on purpose.  EntitySectionStorage walks every section COLUMN in the box,
+        // not just the loaded ones, so a world-sized AABB is 3.75 million iterations a tick and
+        // the server stops making progress (measured 2026-09-13: a 6,000-tick segment made no
+        // headway in 10 minutes).  DIGEST_RADIUS blocks covers every region file this harness
+        // writes; an entity outside it is reported by `vis` versus `n` rather than hashed.
+        List<Entity> all = level.getEntities((Entity) null,
+                new AABB(-DIGEST_RADIUS, level.getMinY() - 64, -DIGEST_RADIUS,
+                        DIGEST_RADIUS, level.getMaxY() + 64, DIGEST_RADIUS),
+                e -> true);
+        for (Entity e : all) {
             Vec3 motion = e.getDeltaMovement();
             rows.add(e.getUUID()
                     + "|" + e.getType().toString()
@@ -218,9 +299,9 @@ public final class DetTrace {
             hash *= 0x100000001b3L;
         }
         long gameTime = level.getGameTime();
-        DetRng.LOGGER.info("[detmc-dg] t={} gt={} n={} h={} clockTasks={} levelRng={}",
-                instance.getTickCount(), gameTime, rows.size(), Long.toHexString(hash), clockDecidedTasks,
-                rngOf(level.getRandom()));
+        DetRng.LOGGER.info("[detmc-dg] t={} gt={} n={} vis={} h={} clockTasks={} levelRng={}",
+                instance.getTickCount(), gameTime, rows.size(), visible, Long.toHexString(hash),
+                clockDecidedTasks, rngOf(level.getRandom()));
         clockDecidedTasks = 0;
         if (inWindow(gameTime)) {
             for (String row : rows) {

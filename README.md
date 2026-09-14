@@ -21,7 +21,7 @@ the server does its work.
 - Runs at full `/tick sprint` speed. Measured cost is 1.13x vanilla ms per tick.
 - `/detmc reseed <long>` re-keys the RNG mid-run. One saved world can branch into many timelines.
 - The RNG stream position is written into the save, so a resumed run replays the block
-  world and the seed stream. Mob state is not covered: see the resume caveat below.
+  world, the seed stream and mob state. One residual is open: see the resume caveat below.
 - Scenario runner: one YAML file per search, a seed prefilter, in-game detectors, snapshots.
 - Branching search that keeps the best worlds of each generation and forks children from them.
 - Headless renderer (a patched Chunky) that draws blocks and mobs straight from the save files.
@@ -87,16 +87,22 @@ What this does not show:
 - A run resumed from a save does not rejoin the timeline of a run that was never
   interrupted. Vanilla stores no draw position for a live `RandomSource`, so those objects
   restart from a fresh seed.
-- Two runs resumed from the same save match on every block, every scoreboard metric and the
-  RNG sidecar, but **not on mob state**. Measured 2026-09-13 on a village world: two
-  containers resumed from one checkpoint with the same reseed differed in 3 of 62 entity
-  chunks after 6,000 ticks and in 1 of 63 after 1,200 ticks, always villager, sheep or iron
-  golem `Pos`, `Motion` and `Rotation`, up to 1.3 blocks apart. With a player in the world
-  the mob population itself differed (208 vs 210 saved entities). Both arms load the same
-  entities in the same order with the same ids and the same re-keyed seeds, so this is a
-  tick-time input and not the missing draw position. A world of summoned endermen and
-  zombies with no villagers and no player does not show it: `test/cases/replay-from-save`
-  is byte-identical across its two resumed arms, entity chunks included.
+- Two runs resumed from the same save used to disagree on mob state on a village world:
+  villager, sheep and iron golem `Pos`, `Motion` and `Rotation`, up to 1.3 blocks apart,
+  3 of 62 entity chunks after 6,000 ticks. The cause was `AcquirePoi` seeding its per-POI
+  retry timers by walking a `HashSet` whose key has no `hashCode`, so the level
+  `RandomSource` ended up one draw apart between the two runs. Fixed 2026-09-13
+  (`AcquirePoiMixin`): the same pair now reads **0 of 62** entity chunks differing in
+  canonical NBT, with the per-tick digest and the level draw count identical at all 6,001
+  gametimes. Details in `docs/STATUS.md`, "that divergence is `AcquirePoi`".
+- One residual is open. In one of two post-fix 6,000-tick pairs, two zombies in a single
+  entity chunk still ended up in different places. They sit outside the per-tick digest's
+  view, so it is not yet dated to a tick. Everything a search reads -- blocks, scoreboard
+  metrics, detector hits, the final gametime and the RNG sidecar -- matches.
+- `Brain.memories` serialises in an unstable key order, because `MemoryModuleType`
+  declares no `hashCode`. It is serialisation order only: the two entity chunks that still
+  differ byte-for-byte in the pair above hold identical values. `branch.py verify` reports
+  those separately from a real difference.
 
 ### Endermen build a 3-block pillar
 

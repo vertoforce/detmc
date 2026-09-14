@@ -1309,3 +1309,101 @@ tickets: `settle()` (31 polls, 22 s) left `entityOrdinal` at 42118 against 42128
 diverged the score metrics as well (`endermen` 0/1, `villagers` 9/7). The wait is not
 in the code; the comment in `Replica.resume` carries this measurement.
 
+
+## 2026-09-13: that divergence is `AcquirePoi`, and it is fixed
+
+**Cause: `AcquirePoi` collects its POI batch into a `HashSet` whose key has no
+`hashCode`, then seeds a per-POI random retry timer by walking that set.**
+
+`AcquirePoi.create` (26.2) takes the five closest candidates and collects them with
+`Collectors.toSet()`:
+
+```java
+Set<Pair<Holder<PoiType>, BlockPos>> poiPositions = poiManager
+    .findAllClosestFirstWithType(poiType, cacheTest, body.blockPosition(), 48, Occupancy.HAS_SPACE)
+    .limit(5L).filter(px -> validPoi.test(level, px.getSecond())).collect(Collectors.toSet());
+Path path = findPathToPois(body, poiPositions);
+if (path != null && path.canReach()) { ... } else {
+    for (Pair<Holder<PoiType>, BlockPos> p : poiPositions) {
+        batchCache.computeIfAbsent(p.getSecond().asLong(),
+                key -> new JitteredLinearRetry(random, timestamp));   // random == level.getRandom()
+    }
+}
+```
+
+`Pair.hashCode()` is `Objects.hashCode(first, second)` and `Holder$Reference` declares
+neither `hashCode` nor `equals` (both checked with `javap` on the shipped jars), so that
+set iterates in **identity-hash order**. `JitteredLinearRetry`'s constructor calls
+`markAttempt`, which draws `random.nextInt(40)` from the **level** `RandomSource`. The
+number of draws is the same in both runs; **which POI gets which delay is not**. Ticks
+later `cacheTest` asks each marker `shouldRetry(timestamp)`, a different subset answers
+yes, and one run calls `markAttempt` **once more** than the other. From that draw on, two
+runs sharing a world are off by one stream position. Villagers and the village iron golem
+read that stream for their walk targets, which is exactly the set of mobs that moved
+apart.
+
+**Evidence**, two containers resumed from one checkpoint of a natural village world with
+the same reseed, no player, 1,200 ticks,
+`-Ddetmc.traceIo=true -Ddetmc.traceDraws=<segment>`:
+
+| reading | result |
+|---|---|
+| first gametime where the level RNG draw **count** differs | **8736205** in one pair, 8736232 in another |
+| first gametime where the entity digest differs | 8736273 -- **41 ticks later** |
+| the draw at the divergence | run A `Behavior.tryStart`, run B `AcquirePoi$JitteredLinearRetry.markAttempt` |
+| the two draws before it | `markAttempt` in **both** runs; B marks a third |
+| every `[detmc-io]` event keyed by gametime | **identical**: save 1370, unload 169, cqSubmit/cqPop 1369, secWrite 4, setBlock 6, entityInbox 1 |
+
+**The chunk-IO hypothesis this file carried is wrong.** Every chunk save, unload, region
+read, POI section write and block change over the whole segment lands on the same
+gametime in both runs, and there is no IO event anywhere near the first divergent tick.
+The input that differs is a `HashSet` iteration order, not a disk.
+
+**`Brain.memories` is not the cause either.** `MemoryModuleType` does declare no
+`hashCode`, so the map is identity-ordered, but the only three places `Brain` iterates it
+are `memories.values().forEach(MemorySlot::clear)`,
+`memories.values().forEach(MemorySlot::tick)` and `Brain.forEach(Visitor)`. The first two
+are per-slot and order-free; the third is the codec. It is **serialisation order only**.
+`Brain.availableBehaviorsByPriority` is a `TreeMap<Integer, HashMap<Activity, LinkedHashSet>>`
+and `Activity` *does* declare `hashCode` (`name.hashCode()`), so behaviour start order was
+never at risk.
+
+**Fix: `AcquirePoiMixin`,** a `@Redirect` on the `Collectors.toSet()` call inside
+`AcquirePoi.lambda$create$3`, returning `Collectors.toCollection(LinkedHashSet::new)`
+when `detmc.syncRandom` is on. The batch then keeps the encounter order of
+`findAllClosestFirstWithType`, a stable sort by squared distance over a stream that is
+already deterministic (`PoiSectionMixin` fixes the type grouping above it, and
+`PoiRecord` does declare `hashCode`). Vanilla's order is arbitrary, so pinning it to
+closest-first changes no documented behaviour.
+
+**Pair result**, same checkpoint, same reseed, 6,000 ticks, no player:
+
+| reading | before | after |
+|---|---|---|
+| entity chunks differing in canonical NBT | **3 of 62** | **0 of 62** |
+| raw `entities/*.mca` chunk payloads differing | 7 of 715 | 2 of 715, **both key-order only** |
+| block region chunks differing | 0 | **0** |
+| first gametime the level RNG draw count differs | 8736232 (within 1,200 ticks) | **none in 6,001** |
+| first gametime the entity digest differs | 8736273 (within 1,200 ticks) | **none in 6,001** |
+| score metrics, detector hits, final gametime, RNG sidecar | MATCH | MATCH |
+
+**The residual is not closed, and it is intermittent.** Of two 6,000-tick pairs run with
+the fix, one read 0 of 62 entity chunks and one read 1 of 62: two zombies in one entity
+chunk differing in `Pos.z`, `Motion.z` and `Rotation`. Those two are **invisible to the
+per-tick digest**, which is why that pair's digest still read identical at all 6,001
+gametimes. The blind spot, found while chasing it: `ServerLevel.getAllEntities()` is
+`LevelEntityGetterAdapter.getAll()`, which reads `visibleEntities` and not the section
+storage, so an entity whose chunk is loaded but not tracked never reaches the hash --
+208 of that checkpoint's 353 entities are visible. `DetTrace.tickDigest` now hashes
+`getEntities(null, box, e -> true)`, which goes through the section storage, and prints
+`vis=` next to `n=` so the gap shows. The box is bounded
+(`-Ddetmc.digestRadius`, default 2048 blocks) because `EntitySectionStorage` walks every
+section column in the box rather than the loaded ones: a world-sized AABB is 3.75 million
+iterations a tick and the server stops making progress.
+
+**New tracing, kept:** `-Ddetmc.traceDraws=lo:hi[,lo:hi]` logs one line per draw from the
+overworld level `RandomSource` inside the given gametime windows, with the calling frames
+from a `StackWalker`. It is what named `AcquirePoi`; the per-tick digest could only date
+the divergence, not attribute it. Entity randoms are deliberately left out --
+`traceEntityWindow` already carries their draw counts, and 208 stack walks a tick is not
+affordable. Cost when off is one static array-length test per `next(bits)` call.

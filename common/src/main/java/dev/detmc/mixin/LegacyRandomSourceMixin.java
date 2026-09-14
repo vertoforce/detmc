@@ -1,6 +1,7 @@
 package dev.detmc.mixin;
 
 import dev.detmc.DetDrawCounter;
+import dev.detmc.DetTrace;
 import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import org.spongepowered.asm.mixin.Final;
@@ -24,6 +25,7 @@ public class LegacyRandomSourceMixin implements DetDrawCounter {
     @Inject(method = "next(I)I", at = @At("HEAD"))
     private void detmc$countDraw(int bits, CallbackInfoReturnable<Integer> cir) {
         this.detmc$draws++;
+        DetTrace.drawSite(this, this.detmc$draws);
     }
 
     @Override

@@ -45,6 +45,8 @@ where two runs stopped matching.
 | `detmc.traceSpawnLight` | boolean | `false` | One line per worldgen mob brightness check: chunk, position, raw brightness, verdict. Dates a mob divergence to one light read. |
 | `detmc.traceIo` | boolean | `false` | One hash per tick over every entity's UUID, position, motion, plus a label wherever a background result enters game state. Dates a divergence to the tick. |
 | `detmc.traceEntityWindow` | `lo:hi` list | empty, off | Inside the given gametime ranges, inclusive, dumps one line per entity per tick, naming the entity and the field that moved. Several ranges allowed: `-Ddetmc.traceEntityWindow=2100:2300,5000:5100`. |
+| `detmc.traceDraws` | `lo:hi` list | empty, off | Inside the given gametime ranges, inclusive, one line per draw from the overworld level `RandomSource`, with the calling frames. Names the call site that took an extra draw, which the per-tick digest can only date. Entity randoms are left out; `traceEntityWindow` carries those. |
+| `detmc.digestRadius` | double | `2048` | Half-width in blocks of the box `traceIo`'s per-tick digest hashes. The digest walks the entity section storage, which iterates every section column in the box, so a world-sized value stalls the server. Raise it only for a world wider than the default. |
 
 ## Commands
 

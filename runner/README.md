@@ -202,6 +202,30 @@ The four modes answer four different questions:
 | `replay-leg <node>` | the node's own segment is a function of (parent world, resume gametime, reseed).  Nothing about how the parent arose | one leg |
 | `verify <a> <b>` | two checkpoints on disk are the same world | no server at all |
 
+### `verify_pair.py`: run one leg twice and diff the two arms
+
+`replay-leg` compares a replay with the leg's own recorded checkpoint, at the leg's own
+recorded length. When the question is "do two siblings of this parent agree", and you
+want a length and a set of JVM flags of your own, use `verify_pair.py`:
+
+```bash
+python3 runner/verify_pair.py --run-id probe --ticks 6000
+python3 runner/verify_pair.py --run-id probe --ticks 1200 \
+    --opts '-Ddetmc.traceIo=true -Ddetmc.traceDraws=8736001:8737201'
+```
+
+It boots the same parent checkpoint twice, one container at a time through `memgate`,
+applies the same reseed to both, and prints `branch.verify_checkpoint`'s table for the
+two arms. The flags in `--opts` go to both. Server logs are kept under
+`runs/<run-id>/serverlogs/`, which the harness would otherwise delete with the data
+directory -- the per-tick digest and the draw trace live only there.
+
+The defaults point at a saved checkpoint of a natural village world, which is the one
+that found the `AcquirePoi` ordering defect (docs/STATUS.md, "The village divergence is
+`AcquirePoi`"): `--opts '-Ddetmc.traceIo=true'` dated the divergence to a gametime, and
+`-Ddetmc.traceDraws` over that window named the call site. Point `--source-run`,
+`--parent`, `--reseed` and `--resume-at` at a run of your own.
+
 Output lands in `runs/<run_id>/`: `lineage.jsonl` (one line per node, appended as
 it finishes), `lineage.json` (the whole tree plus the best node), `manifest.json`,
 `params.json` (every argument, for `--resume`), `checkpoints/<node>/world` +

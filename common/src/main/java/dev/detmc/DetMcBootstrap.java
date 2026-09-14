@@ -55,6 +55,7 @@ public final class DetMcBootstrap {
             "net.minecraft.world.Stopwatches",
             "net.minecraft.world.item.enchantment.ItemEnchantments",
             "net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity",
+            "net.minecraft.world.entity.ai.behavior.AcquirePoi",
             "net.minecraft.world.entity.ai.village.poi.PoiSection",
             "net.minecraft.world.entity.player.StackedContents",
             "net.minecraft.world.scores.Scoreboard",

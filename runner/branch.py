@@ -1253,6 +1253,7 @@ def compare(a, b):
 # scoreboard, so that is what a replay has to be judged on.
 
 REGION_MD5 = runner.PROJECT / "test" / "region-md5.py"
+NBT_CANON = runner.PROJECT / "test" / "nbt-canon.py"
 CAMERA = runner.PROJECT / "camera"
 
 
@@ -1272,6 +1273,35 @@ def region_md5(world):
         if len(parts) == 2 and len(parts[0]) == 32:
             md5[parts[1]] = parts[0]
     return md5
+
+
+def entity_chunk_canon(world):
+    """{`<entities file>#<chunk x,z>`: canonical NBT} for every entity chunk.
+
+    Shells out to `test/nbt-canon.py`, which sorts compound keys and keeps list
+    order, so a chunk whose only difference is the order its keys serialised in
+    hashes the same here and a moved value does not.  Measured 2026-09-13 on the
+    `verify-noplayer-control` pair: 4 of the 7 entity chunks that differ in raw
+    payload bytes are `Brain.memories` key order (`home` before `meeting_point`
+    in one arm, after it in the other) with identical values -- the same
+    unstable order `test/sweep-diff.py` carries as a KNOWN section.  The other 3
+    are real: villager and iron golem `Pos`, `Motion` and `Rotation`.
+
+    Only `entities/*.mca` is canonicalised.  The block region files are hundreds
+    of chunks of packed longs whose canonical dump would be tens of MB, and they
+    have never differed: `region chunk payloads` above is the check for those.
+    """
+    out = {}
+    for path in sorted(Path(world).rglob("entities/*.mca")):
+        if path.stat().st_size < 8192:
+            continue
+        rel = path.relative_to(world)
+        text = sh([sys.executable, str(NBT_CANON), str(path)], timeout=900)
+        for line in text.splitlines():
+            parts = line.split(" ", 3)          # <file> chunk <x,z> <canon>
+            if len(parts) == 4 and parts[1] == "chunk":
+                out[f"{rel}#{parts[2]}"] = hashlib.md5(parts[3].encode()).hexdigest()
+    return out
 
 
 def region_chunks_md5(world):
@@ -1429,6 +1459,32 @@ def verify_checkpoint(a, b, columns=(), la="expected", lb="replay", show=True):
     detail.append(f"  region chunk payloads: {len(ca)} live chunks vs {len(cb)}")
     for k in bad[:20]:
         detail.append(f"    DIFFER {k}  {ca.get(k)}  {cb.get(k)}")
+
+    ea, eb = entity_chunk_canon(a / "world"), entity_chunk_canon(b / "world")
+    bad = sorted(k for k in set(ea) | set(eb) if ea.get(k) != eb.get(k))
+    out["entity chunk state"] = ("MATCH" if not bad
+                                 else f"DIFFER: {len(bad)} of {len(set(ea) | set(eb))} chunks")
+    # A chunk whose canonical NBT matches but whose bytes do not is key order
+    # only.  `bad` is keyed by chunk x,z and `ca`/`cb` by the region index, so
+    # translate before subtracting: index = z * 32 + x.
+    canon_bad = set()
+    for k in bad:
+        f, _, xz = k.partition("#")
+        x, _, z = xz.partition(",")
+        canon_bad.add(f"{f}#{int(z) * 32 + int(x)}")
+    noise = sorted(k for k in set(ca) | set(cb)
+                   if ca.get(k) != cb.get(k) and "entities/" in k
+                   and k not in canon_bad)
+    detail.append(f"  entity chunk state: {len(ea)} entity chunks vs {len(eb)}, "
+                  f"{len(bad)} differ in canonical NBT")
+    for k in bad[:20]:
+        detail.append(f"    DIFFER {k}")
+    if noise:
+        detail.append(f"    {len(noise)} more entity chunk(s) differ in bytes only "
+                      f"(same keys, same values, different key order -- "
+                      f"Brain.memories serialises in an unstable order; STATUS 'sweep test')")
+        for k in noise[:20]:
+            detail.append(f"    KEY-ORDER {k}")
 
     pa, pb = rng_props(a / "world"), rng_props(b / "world")
     bad = {k: (pa.get(k), pb.get(k)) for k in sorted(set(pa) | set(pb))
