@@ -14,6 +14,19 @@ then replay the world that produced it.
 Vanilla game logic is untouched. detmc only changes where seeds come from and in what order
 the server does its work.
 
+## What it found
+
+Twenty endermen in a walled pen with loose dirt at foot level, searched across many worlds
+until one of them stacked three blocks. Overhead time-lapse of the pen, 47 frames at 8 fps:
+
+![Enderman pillar time-lapse, overhead](docs/media/find-g48n5-pillar3-overhead.gif)
+
+The same tick from a low angle, an enderman standing on the finished pillar:
+
+![Enderman pillar, low angle](docs/media/find-g48n5-pillar3-2350060.png)
+
+How the search works, and how to replay this exact world, is in Results below.
+
 ## Features
 
 - Bit-identical replay of the vanilla 26.2 server from one seed. Headless, no player needed.
@@ -117,16 +130,8 @@ generation, kept the best 4 and forked 2 children from each. At in-game tick 799
 is day 33, one enderman stacked a third block on a 2-stack at (89, 136..138, -21). The
 pillar was still standing at tick 912,001, when the render above was taken.
 
-The same lineage hit again at gametime 2,350,060 in node `g48n5`. Overhead time-lapse of the
-whole pen, 47 frames at 8 fps:
-
-![Enderman pillar time-lapse, overhead](docs/media/find-g48n5-pillar3-overhead.gif)
-
-Low-angle still of that tick, an enderman standing on the finished pillar:
-
-![Enderman pillar, low angle](docs/media/find-g48n5-pillar3-2350060.png)
-
-Video versions of both angles are in `docs/media/`.
+The same lineage hit again at gametime 2,350,060 in node `g48n5`. That is the time-lapse and
+low-angle still at the top of this page. Video versions of both angles are in `docs/media/`.
 
 ### Replaying the find
 
